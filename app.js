@@ -9027,7 +9027,7 @@ window.processShopSale = async function() {
     const proceed = window.confirm(confirmationMessage);
     if (!proceed) return;
 
-    const receiptNum = 'RCPT-' + Math.floor(100000 + Math.random() * 900000);
+    const receiptNum = 'RCPT-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 12)).toUpperCase());
     const saleDate = new Date().toISOString().split('T')[0];
 
     let paymentMethodString = "Credit";
@@ -9133,7 +9133,7 @@ window.processShopSale = async function() {
 
     if (actualCashReceived > 0 || creditApplied > 0) {
         cloudPaymentRecord = {
-            id: Math.floor(Date.now() / 1000), 
+            
             student_id: studentId || "WALK-IN",
             date: saleDate,
             amount: parseFloat(actualCashReceived.toFixed(2)), 
@@ -9147,126 +9147,151 @@ window.processShopSale = async function() {
         };
     }
 
-    let transactionSaved = false;
-    let ledgerSaved = false;
-    let paymentSaved = false;
     let referenceClaimed = false;
-    const inventoryUpdatesApplied = [];
-    
+
     try {
         if (!navigator.onLine || !window.supabaseClient) {
             throw new Error("You are offline or the cloud client is unavailable. No sale was recorded.");
         }
 
         if (ecoRef) {
-            referenceClaimed = await window.claimPaymentReference(ecoRef, studentId, 'shop-sale');
+            referenceClaimed = await window.claimPaymentReference(ecoRef, studentId || "WALK-IN", "shop-sale");
             if (!referenceClaimed) {
                 throw new Error(`Payment reference ${ecoRef} is already claimed. No sale was recorded.`);
             }
         }
 
-        for (const updatedItem of inventoryUpdates) {
-            const previousQty = parseInt(inventoryById.get(String(updatedItem.id)).qty, 10) || 0;
-            const { data: changedRows, error: stockError } = await window.supabaseClient
-                .from('inventory')
-                .update({ qty: updatedItem.qty })
-                .eq('id', updatedItem.id)
-                .eq('qty', previousQty)
-                .select('id');
-            if (stockError) throw new Error(`Could not update remaining stock for ${updatedItem.name}: ${stockError.message}`);
-            if (!changedRows || changedRows.length === 0) {
-                throw new Error(`Stock for ${updatedItem.name} changed during checkout. Refresh inventory and try again.`);
-            }
-            inventoryUpdatesApplied.push({ id: updatedItem.id, previousQty, updatedQty: updatedItem.qty });
-        }
-
-        try {
-            const { error: txError } = await window.supabaseClient.from('transactions').insert([saleRecord]);
-            if (txError) throw txError;
-            transactionSaved = true;
-        } catch (e) {
-            throw new Error(`Sale record save failed: ${e.message}`);
-        }
-
-        if (studentId) {
-            const { error: ledgerError } = await window.supabaseClient.from('student_ledger').insert(ledgerEntries);
-            if (ledgerError) throw new Error('Ledger save failed: ' + ledgerError.message);
-            ledgerSaved = true;
-        }
+        // One database transaction now owns stock, sale, ledger and payment writes.
+        // Inventory rows are locked and quantities rechecked inside the database function.
+        const stockPayload = Array.from(requestedQuantities, ([item_id, quantity]) => ({
+            item_id,
+            quantity
+        }));
 
         if (cloudPaymentRecord) {
-            const { error: paymentError } = await window.supabaseClient.from('payments').insert([cloudPaymentRecord]);
-            if (paymentError) throw new Error('Payment save failed: ' + paymentError.message);
-            paymentSaved = true;
+            delete cloudPaymentRecord.id; // PostgreSQL sequence supplies a concurrency-safe ID.
+        }
+
+        const { data: saleResult, error: saleError } = await window.supabaseClient.rpc(
+            "process_shop_sale",
+            {
+                p_sale: saleRecord,
+                p_ledger: ledgerEntries,
+                p_payment: cloudPaymentRecord,
+                p_stock: stockPayload,
+                p_credit_applied: creditApplied
+            }
+        );
+
+        if (saleError) {
+            throw new Error(`Sale was not committed: ${saleError.message}`);
+        }
+        if (!saleResult || saleResult.receipt_no !== receiptNum) {
+            throw new Error("The sale response could not be verified. Check the receipt before retrying.");
+        }
+
+        // Keep local records consistent with the committed ledger calculation.
+        if (student && creditApplied > 0) {
+            const paymentLedgerEntry = ledgerEntries.find(entry => String(entry.type).toLowerCase() === "payment");
+            if (paymentLedgerEntry) {
+                paymentLedgerEntry.amount = parseFloat(((parseFloat(paymentLedgerEntry.amount) || 0) + creditApplied).toFixed(2));
+            }
         }
 
         if (!window.transactions) window.transactions = [];
         window.transactions.push(saleRecord);
-        localStorage.setItem('havenTransactions', JSON.stringify(window.transactions));
+        localStorage.setItem("havenTransactions", JSON.stringify(window.transactions));
 
-        const updateInventoryCache = inventory => {
-            if (!Array.isArray(inventory)) return;
-            inventoryUpdates.forEach(updatedItem => {
-                const cachedItem = inventory.find(item => String(item.id) === String(updatedItem.id));
-                if (cachedItem) Object.assign(cachedItem, updatedItem);
-            });
-        };
-        updateInventoryCache(window.inventory);
-        updateInventoryCache(window.shopInventory);
-        if (Array.isArray(window.inventory)) {
-            localStorage.setItem('haven_inventory', JSON.stringify(window.inventory));
-            localStorage.setItem('havenInventory', JSON.stringify(window.inventory));
+        // Refresh the affected stock from the committed database state. Never apply
+        // a stale local quantity over a change made by another device.
+        try {
+            const { data: refreshedInventory, error: refreshInventoryError } = await window.supabaseClient
+                .from("inventory")
+                .select("*")
+                .in("id", Array.from(requestedQuantities.keys()));
+            if (refreshInventoryError) throw refreshInventoryError;
+
+            const updateInventoryCache = inventory => {
+                if (!Array.isArray(inventory)) return;
+                (refreshedInventory || []).forEach(freshItem => {
+                    const cachedItem = inventory.find(item => String(item.id) === String(freshItem.id));
+                    if (cachedItem) Object.assign(cachedItem, freshItem);
+                });
+            };
+            updateInventoryCache(window.inventory);
+            updateInventoryCache(window.shopInventory);
+
+            if (Array.isArray(window.inventory)) {
+                localStorage.setItem("haven_inventory", JSON.stringify(window.inventory));
+                localStorage.setItem("havenInventory", JSON.stringify(window.inventory));
+            }
+            if (Array.isArray(window.shopInventory)) {
+                localStorage.setItem("havenShopInventory", JSON.stringify(window.shopInventory));
+            }
+        } catch (refreshError) {
+            console.warn("Sale committed, but stock display refresh needs retry:", refreshError);
         }
-        if (Array.isArray(window.shopInventory)) localStorage.setItem('havenShopInventory', JSON.stringify(window.shopInventory));
 
         if (ecoRef && actualCashReceived > 0) {
+            window.ecoCashTransactions = window.ecoCashTransactions || [];
             window.ecoCashTransactions.push({
                 date: saleDate,
                 ref: ecoRef,
                 studentId,
                 amount: paidUsd,
                 zigAmount: paidZig,
-                status: 'claimed',
+                status: "claimed",
                 claimedBy: cashierName,
-                source: 'shop-sale'
+                source: "shop-sale"
             });
-            if (typeof window.saveEcoCashTransactions === 'function') window.saveEcoCashTransactions();
+            if (typeof window.saveEcoCashTransactions === "function") window.saveEcoCashTransactions();
         }
 
         if (student) {
-            if (!student.ledger) student.ledger = [];
-            student.ledger.push(...ledgerEntries);
-            if (typeof window.calculateStudentBalance === 'function') {
+            try {
+                const { data: latestLedger, error: latestLedgerError } = await window.supabaseClient
+                    .from("student_ledger")
+                    .select("*")
+                    .eq("student_id", student.id);
+                if (latestLedgerError) throw latestLedgerError;
+
+                student.ledger = latestLedger || [];
+                const committedBalance = Number(saleResult.balance_owing);
+                student.balanceOwing = Number.isFinite(committedBalance)
+                    ? committedBalance
+                    : window.calculateStudentBalance(student);
+                student.balance_owing = student.balanceOwing;
+            } catch (refreshLedgerError) {
+                // The database transaction is already committed. Do not report a
+                // failed sale or attempt a destructive rollback for a refresh issue.
+                console.warn("Sale committed, but student ledger refresh needs retry:", refreshLedgerError);
                 student.balanceOwing = window.calculateStudentBalance(student);
                 student.balance_owing = student.balanceOwing;
             }
         }
 
-        usdField.value = '';
-        zigField.value = '';
-        if(ecoRefField) ecoRefField.value = '';
-        if(discountField) discountField.value = '';
-        if (document.getElementById('shopWaiverMode')) document.getElementById('shopWaiverMode').checked = false;
-        document.getElementById('shopStudentId').value = '';
+        usdField.value = "";
+        zigField.value = "";
+        if (ecoRefField) ecoRefField.value = "";
+        if (discountField) discountField.value = "";
+        if (document.getElementById("shopWaiverMode")) document.getElementById("shopWaiverMode").checked = false;
+        document.getElementById("shopStudentId").value = "";
         window.shopCart = [];
-        if (typeof window.renderCart === 'function') window.renderCart(); 
-        if (typeof window.renderInventory === 'function') window.renderInventory();
+        if (typeof window.renderCart === "function") window.renderCart();
+        if (typeof window.renderInventory === "function") window.renderInventory();
 
         let missedWhatsapp = false;
         if (!isWalkIn && student) {
             const phone = (student.phone || student.cell || "").toString();
-            
+
             if (phone.trim() !== "") {
                 const wantsWhatsapp = confirm(`Do you want to send a WhatsApp receipt to ${student.name} at ${phone}?`);
-                
                 if (wantsWhatsapp) {
-                    let cleanPhone = phone.replace(/[^0-9+]/g, '');
-                    if (cleanPhone.startsWith('0')) cleanPhone = '263' + cleanPhone.substring(1); 
-                    
-                    const waText = `*${window.settings?.schoolName || 'HAVEN ONLINE'} - Shop Receipt*\n\n*Receipt No:* ${receiptNum}\n*Date:* ${saleDate}\n*Student:* ${student.name}\n*Student ID:* ${student.id}\n------------------------\n*Items Purchased:*\n${purchasedItemsText}\n------------------------\n*Total Due:* $${finalDueAfterDiscount.toFixed(2)}\n${creditApplied > 0 ? `💳 *Credit Applied:* $${creditApplied.toFixed(2)}\n` : ''}*Cash/Digital Paid:* $${actualCashReceived.toFixed(2)}\n*Payment Method:* ${paymentMethodString}\n${paymentMethodDetails ? `*Payment Details:* ${paymentMethodDetails}` : ''}\n------------------------\n*Served By:* ${cashierName}\nThank you!`;
-                    
-                    const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
-                    window.open(waLink, '_blank');
+                    let cleanPhone = phone.replace(/[^0-9+]/g, "");
+                    if (cleanPhone.startsWith("0")) cleanPhone = "263" + cleanPhone.substring(1);
+
+                    const waText = `*${window.settings?.schoolName || "HAVEN ONLINE"} - Shop Receipt*\\n\\n*Receipt No:* ${receiptNum}\\n*Date:* ${saleDate}\\n*Student:* ${student.name}\\n*Student ID:* ${student.id}\\n------------------------\\n*Items Purchased:*\\n${purchasedItemsText}\\n------------------------\\n*Total Due:* $${finalDueAfterDiscount.toFixed(2)}\\n${creditApplied > 0 ? `💳 *Credit Applied:* $${creditApplied.toFixed(2)}\\n` : ""}*Cash/Digital Paid:* $${actualCashReceived.toFixed(2)}\\n*Payment Method:* ${paymentMethodString}\\n${paymentMethodDetails ? `*Payment Details:* ${paymentMethodDetails}` : ""}\\n------------------------\\n*Served By:* ${cashierName}\\nThank you!`;
+                    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`, "_blank");
                 }
             } else {
                 missedWhatsapp = true;
@@ -9274,83 +9299,27 @@ window.processShopSale = async function() {
         }
 
         try {
-            if (typeof window.printShopReceipt === 'function') window.printShopReceipt(saleRecord);
+            if (typeof window.printShopReceipt === "function") window.printShopReceipt(saleRecord);
         } catch (printError) {
             console.warn("Receipt generation failed (likely popup blocker):", printError);
         }
 
-        const remainingStockText = inventoryUpdates.map(item => `${item.name}: ${item.qty} left`).join('\n');
+        const remainingStockText = (window.shopInventory || window.inventory || [])
+            .filter(item => requestedQuantities.has(String(item.id)))
+            .map(item => `${item.name}: ${item.qty} left`)
+            .join("\\n");
+
         setTimeout(() => {
             if (missedWhatsapp && !isWalkIn) {
-                alert(`✅ Sale Logged Successfully!\nReceipt: ${receiptNum}\n\nRemaining stock:\n${remainingStockText}\n\n⚠️ Could not send WhatsApp: No phone number saved for ${student.name}.`);
+                alert(`✅ Sale Logged Successfully!\\nReceipt: ${receiptNum}\\n\\nRemaining stock:\\n${remainingStockText}\\n\\n⚠️ Could not send WhatsApp: No phone number saved for ${student.name}.`);
             } else {
-                alert(`✅ Sale Logged Successfully!\nReceipt: ${receiptNum}\n\nRemaining stock:\n${remainingStockText}`);
+                alert(`✅ Sale Logged Successfully!\\nReceipt: ${receiptNum}\\n\\nRemaining stock:\\n${remainingStockText}`);
             }
         }, 500);
 
     } catch (error) {
         console.error("Shop Sale Error:", error);
-        const rollbackIssues = [];
-        try {
-            const rollbacks = [];
-            for (const stockChange of inventoryUpdatesApplied) {
-                rollbacks.push(window.supabaseClient.from('inventory')
-                    .update({ qty: stockChange.previousQty })
-                    .eq('id', stockChange.id)
-                    .eq('qty', stockChange.updatedQty)
-                    .select('id'));
-            }
-            if (paymentSaved) rollbacks.push(window.supabaseClient.from('payments').delete().eq('receipt_no', receiptNum));
-            if (ledgerSaved) rollbacks.push(window.supabaseClient.from('student_ledger').delete().in('id', ledgerEntries.map(entry => entry.id)));
-            if (transactionSaved) rollbacks.push(window.supabaseClient.from('transactions').delete().eq('id', saleRecord.id));
-            const rollbackResults = await Promise.all(rollbacks);
-            rollbackResults.forEach((result, index) => {
-                if (result.error) rollbackIssues.push(result.error.message);
-                else if (index < inventoryUpdatesApplied.length && (!result.data || result.data.length === 0)) {
-                    rollbackIssues.push(`Inventory item ${inventoryUpdatesApplied[index].id} changed before rollback and needs review.`);
-                }
-            });
-        } catch (rollbackError) {
-            console.error("Shop sale rollback failed:", rollbackError);
-            rollbackIssues.push(rollbackError.message);
-        }
-        if (referenceClaimed) rollbackIssues.push(`Payment reference ${ecoRef} remains claimed. Verify the cloud records before releasing or retrying it.`);
-        if (transactionSaved && Array.isArray(window.transactions)) {
-            window.transactions = window.transactions.filter(transaction => String(transaction.id) !== String(saleRecord.id));
-            try { localStorage.setItem('havenTransactions', JSON.stringify(window.transactions)); }
-            catch (storageError) { rollbackIssues.push(`Local transaction cache could not be restored: ${storageError.message}`); }
-        }
-        if (student && ledgerSaved && Array.isArray(student.ledger)) {
-            const ledgerEntryIds = new Set(ledgerEntries.map(entry => String(entry.id)));
-            student.ledger = student.ledger.filter(entry => !ledgerEntryIds.has(String(entry.id)));
-            if (typeof window.calculateStudentBalance === 'function') {
-                student.balanceOwing = window.calculateStudentBalance(student);
-                student.balance_owing = student.balanceOwing;
-            }
-        }
-        if (inventoryUpdatesApplied.length > 0) {
-            const restoreInventoryCache = inventory => {
-                if (!Array.isArray(inventory)) return;
-                inventoryUpdatesApplied.forEach(change => {
-                    const original = inventoryById.get(String(change.id));
-                    const cached = inventory.find(item => String(item.id) === String(change.id));
-                    if (original && cached) Object.assign(cached, original);
-                });
-            };
-            restoreInventoryCache(window.inventory);
-            restoreInventoryCache(window.shopInventory);
-            try {
-                if (Array.isArray(window.inventory)) {
-                    localStorage.setItem('haven_inventory', JSON.stringify(window.inventory));
-                    localStorage.setItem('havenInventory', JSON.stringify(window.inventory));
-                }
-                if (Array.isArray(window.shopInventory)) localStorage.setItem('havenShopInventory', JSON.stringify(window.shopInventory));
-            } catch (storageError) {
-                rollbackIssues.push(`Local inventory cache could not be restored: ${storageError.message}`);
-            }
-        }
-        if (rollbackIssues.length > 0) error.message += ` Rollback needs review: ${rollbackIssues.join('; ')}`;
-        alert("⚠️ Shop sale was not completed. Error: " + error.message);
+        alert("⚠️ Shop sale could not be confirmed. Do not retry with a new receipt until you check the transaction history. Error: " + error.message);
     }
 };
 
