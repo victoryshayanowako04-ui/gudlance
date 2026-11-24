@@ -1431,11 +1431,13 @@ window.attemptLogin = async function() {
         const cleanPass = pInput.trim();
         const loginSelect = 'id,username,name,password_hash,role,data';
         const loginLookupStartedAt = performance.now();
-        const lookupUserColumn = async (column, jsonPath = false) => {
+        const lookupUserColumn = async (column, jsonPath = false, caseInsensitive = false) => {
             const query = window.supabaseClient.from('users').select(loginSelect);
+            const operator = caseInsensitive ? 'ilike' : 'eq';
+            const filterValue = caseInsensitive ? cleanUser : uInput.trim();
             const filtered = jsonPath
-                ? query.filter(column, 'ilike', cleanUser)
-                : query.ilike(column, cleanUser);
+                ? query.filter(column, operator, filterValue)
+                : query[operator](column, filterValue);
             const { data, error } = await Promise.race([
                 filtered.limit(5),
                 new Promise((_, reject) => setTimeout(
@@ -1455,16 +1457,25 @@ window.attemptLogin = async function() {
             });
         };
 
-        let cloudUsers = [];
-        for (const [column, jsonPath] of [
+        const loginColumns = [
             ['username', false],
             ['name', false],
             ['data->>username', true],
             ['data->>user', true],
             ['data->>name', true]
-        ]) {
-            cloudUsers = await lookupUserColumn(column, jsonPath);
+        ];
+        let cloudUsers = [];
+        // Most accounts resolve with one indexed exact-match lookup.
+        for (const [column, jsonPath] of loginColumns) {
+            cloudUsers = await lookupUserColumn(column, jsonPath, false);
             if (cloudUsers.length) break;
+        }
+        // Keep the previous case-insensitive login behavior for legacy account names.
+        if (!cloudUsers.length) {
+            for (const [column, jsonPath] of loginColumns) {
+                cloudUsers = await lookupUserColumn(column, jsonPath, true);
+                if (cloudUsers.length) break;
+            }
         }
         console.info(`[Startup] Targeted account lookup completed in ${((performance.now() - loginLookupStartedAt) / 1000).toFixed(1)}s`);
 
