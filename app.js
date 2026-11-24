@@ -16063,11 +16063,16 @@ window.initializeApp = async function() {
             users: async () => {
                 const rows = await window.fetchCompleteCloudTable('users');
                 window.users = rows.length ? rows.map(row => row.data || row) : [];
+                if (typeof window.fetchOnlineUsers === 'function') {
+                    window.fetchOnlineUsers(rows).catch(error => console.error('Online-user refresh failed:', error));
+                }
             }
         };
 
         const sectionDatasets = {
             enrollment: ['classes', 'fee_structures'],
+            preEnrollment: ['classes', 'fee_structures'],
+            settings: ['users'],
             attendance: ['attendance'],
             academics: ['academic_reports', 'teachers', 'allocations'],
             shop: ['inventory'],
@@ -16075,7 +16080,6 @@ window.initializeApp = async function() {
             payroll: ['payroll_history', 'teachers'],
             teachers: ['teachers', 'allocations'],
             reports: ['academic_reports', 'attendance', 'transactions', 'expenses', 'payroll_history'],
-            users: ['users']
         };
 
         window.ensureSectionData = async function(sectionId) {
@@ -16099,7 +16103,9 @@ window.initializeApp = async function() {
             }));
 
             if (initializationGeneration !== window.appInitializationGeneration) return;
-            if (sectionId === 'enrollment') {
+            if (sectionId === 'settings' && typeof window.renderStaffList === 'function') window.renderStaffList();
+            if (sectionId === 'preEnrollment' && typeof window.updateAllClassDropdowns === 'function') window.updateAllClassDropdowns();
+            if (sectionId === 'enrollment' || sectionId === 'preEnrollment') {
                 if (typeof window.updateAllClassDropdowns === 'function') window.updateAllClassDropdowns();
                 if (typeof window.renderCustomClasses === 'function') window.renderCustomClasses();
                 if (typeof renderFeeStructures === 'function') renderFeeStructures();
