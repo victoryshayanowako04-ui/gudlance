@@ -26,6 +26,7 @@ CREATE OR REPLACE FUNCTION public.process_student_payment(
 )
 RETURNS text
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $function$
 DECLARE
     v_receipt_no text;
