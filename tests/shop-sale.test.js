@@ -93,3 +93,21 @@ test("cached-only startup cannot authorize financial writes", () => {
     assert.ok(app.slice(start, start + 220).includes("ensureFreshFinancialData"), handler + " must require verified data");
   }
 });
+
+test("shop loader reuses startup student and ledger data", () => {
+  const start = app.indexOf("window.loadShopDataFromSource = async function()");
+  const end = app.indexOf("window.clearEnrollmentForm = function()", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const loader = app.slice(start, end);
+  assert.match(loader, /fetchCompleteCloudTable\('transactions'\)/);
+  assert.doesNotMatch(loader, /fetchCompleteCloudTable\('students'\)/);
+  assert.doesNotMatch(loader, /fetchCompleteCloudTable\('student_ledger'\)/);
+});
+
+test("shop sale validates cart totals, prices and quantities inside the database transaction", () => {
+  assert.match(migration, /v_cart_total/);
+  assert.match(migration, /Stock quantities do not match the submitted cart/);
+  assert.match(migration, /Price changed for inventory item/);
+  assert.match(migration, /Payment amount does not match the sale cash received/);
+});
