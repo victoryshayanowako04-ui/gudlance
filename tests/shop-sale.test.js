@@ -111,3 +111,50 @@ test("shop sale validates cart totals, prices and quantities inside the database
   assert.match(migration, /Price changed for inventory item/);
   assert.match(migration, /Payment amount does not match the sale cash received/);
 });
+
+
+const vm = require("node:vm");
+const coreSyncMigration = fs.readFileSync(
+  path.join(root, "supabase/migrations/20261124220000_core_sync_revisions.sql"),
+  "utf8"
+);
+
+test("main application JavaScript parses without syntax errors", () => {
+  assert.doesNotThrow(() => new vm.Script(app));
+});
+
+test("login performs a targeted account lookup instead of downloading every staff account", () => {
+  const start = app.indexOf("window.attemptLogin = async function()");
+  const end = app.indexOf("window.logout = async function()", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const login = app.slice(start, end);
+  assert.match(login, /\.ilike\('username', cleanUser\)/);
+  assert.match(login, /data->>username/);
+  assert.doesNotMatch(login, /count:\s*['"]exact['"]/);
+  assert.match(login, /window\.loginCloudUsers = null/);
+  assert.doesNotMatch(login, /fetchOnlineUsers\(cloudUsers\)/);
+});
+
+test("startup reuses only financial caches whose cloud revisions still match", () => {
+  assert.match(app, /haven_core_sync_revisions/);
+  assert.match(app, /Core cache matches cloud revisions; skipping full financial downloads/);
+  assert.match(app, /Core records changed during download; financial actions remain paused/);
+  assert.match(app, /Financial records changed while checking the cache/);
+});
+
+test("first-time and mobile startup downloads all core rows using verified pagination", () => {
+  assert.doesNotMatch(app, /Phone core cloud connection timed out/);
+  assert.match(app, /fetchCompleteCloudTable\('students'\)/);
+  assert.match(app, /fetchCompleteCloudTable\('student_ledger'\)/);
+  assert.match(app, /fetchCompleteCloudTable\('payments'\)/);
+});
+
+test("core sync revision metadata tracks inserts, updates and deletes", () => {
+  for (const table of ["students", "student_ledger", "payments"]) {
+    assert.match(coreSyncMigration, new RegExp("after insert or update or delete on public\\." + table));
+  }
+  assert.match(coreSyncMigration, /enable row level security/i);
+  assert.match(coreSyncMigration, /for select\s+to anon, authenticated\s+using \(true\)/i);
+  assert.match(coreSyncMigration, /security definer/i);
+});
