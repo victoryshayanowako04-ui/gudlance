@@ -4795,7 +4795,7 @@ window.addInstantCharge = async function(mode = 'waterfall') {
         if (!confirm(`📝 ADD TO BILL:\n\nAdd a permanent charge of $${amt.toFixed(2)} for "${desc}" to ${student.name}'s account?`)) return;
 
         const newCharge = {
-            id: 'CHG-' + Date.now(),
+            id: 'CHG-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2))),
             student_id: student.id,
             date: new Date().toISOString().split('T')[0],
             type: 'charge',
@@ -4840,7 +4840,7 @@ window.addInstantCharge = async function(mode = 'waterfall') {
         if (!confirm(`💰 DIRECT PAYMENT:\n\nCharge and IMMEDIATELY pay $${amt.toFixed(2)} for "${desc}" via ${method}?`)) return;
 
         const paymentDate = new Date().toISOString().split('T')[0];
-        const sharedId = Date.now().toString();
+        const sharedId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
         let receiptNo = "RCPT-" + sharedId.slice(-6);
 
         // 1. Create the permanent Charge record
@@ -5466,7 +5466,7 @@ window.processPayment = async function() {
     // ==========================================
     // 💾 SAVE PAYMENT & DISCOUNT RECORDS 
     // ==========================================
-    const sharedId = Date.now().toString();
+    const sharedId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
 
     if (tuitionCashAmount > 0 || overpayCashAmount === 0) {
         student.ledger.push({
