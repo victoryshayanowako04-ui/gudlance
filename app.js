@@ -1465,12 +1465,26 @@ window.attemptLogin = async function() {
             ['data->>name', true]
         ];
         let cloudUsers = [];
-        // Check each indexed field with exact match first, then preserve case-insensitive fallback.
-        for (const [column, jsonPath] of loginColumns) {
-            cloudUsers = await lookupUserColumn(column, jsonPath, false);
-            if (cloudUsers.length) break;
-            cloudUsers = await lookupUserColumn(column, jsonPath, true);
-            if (cloudUsers.length) break;
+        // Start indexed lookups together, but consume results in the original
+        // field-priority order so duplicate usernames keep the same resolution.
+        const runLoginLookupBatch = async (caseInsensitive) => {
+            const pendingLookups = loginColumns.map(([column, jsonPath]) =>
+                lookupUserColumn(column, jsonPath, caseInsensitive).then(
+                    value => ({ value }),
+                    error => ({ error })
+                )
+            );
+            for (const pendingLookup of pendingLookups) {
+                const result = await pendingLookup;
+                if (result.error) throw result.error;
+                if (result.value.length) return result.value;
+            }
+            return [];
+        };
+
+        cloudUsers = await runLoginLookupBatch(false);
+        if (!cloudUsers.length) {
+            cloudUsers = await runLoginLookupBatch(true);
         }
         console.info(`[Startup] Targeted account lookup completed in ${((performance.now() - loginLookupStartedAt) / 1000).toFixed(1)}s`);
 

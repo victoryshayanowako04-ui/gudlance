@@ -180,3 +180,17 @@ test("login lookup fields have indexes for exact-match queries", () => {
   assert.match(app, /query\[operator\]\(column, filterValue\)/);
   assert.match(app, /Check each indexed field with exact match first/);
 });
+
+
+test("login checks indexed columns concurrently while preserving original field priority", () => {
+  const start = app.indexOf("window.attemptLogin = async function()");
+  const end = app.indexOf("window.logout = async function()", start);
+  const login = app.slice(start, end);
+  assert.match(login, /const runLoginLookupBatch = async \(caseInsensitive\)/);
+  assert.match(login, /loginColumns\.map\(\(\[column, jsonPath\]\)/);
+  assert.match(login, /lookupUserColumn\(column, jsonPath, caseInsensitive\)/);
+  assert.match(login, /for \(const pendingLookup of pendingLookups\)/);
+  assert.match(login, /cloudUsers = await runLoginLookupBatch\(false\)/);
+  assert.match(login, /cloudUsers = await runLoginLookupBatch\(true\)/);
+  assert.doesNotMatch(login, /for \(const \[column, jsonPath\] of loginColumns\)\s*\{\s*cloudUsers = await lookupUserColumn/);
+});

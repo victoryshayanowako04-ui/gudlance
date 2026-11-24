@@ -9,9 +9,14 @@ name: Gudlance Regression Tests
 permissions:
   contents: read
 
+concurrency:
+  group: gudlance-regression-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   node-regression-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -19,5 +24,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Validate application JavaScript syntax
+        run: |
+          node --check app.js
+          for file in main.js server.js service-worker.js parent-portal.js stationery.js netlify/functions/*.js tests/*.js; do
+            node --check "$file"
+          done
       - name: Run regression tests
         run: npm test
