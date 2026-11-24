@@ -214,3 +214,23 @@ test("completed startup reveals the dashboard and removes the finished sync bann
   assert.match(status, /if \(overlay\) overlay\.style\.display = 'none'/);
   assert.match(status, /window\.ensureStartupDashboardVisible\(\)/);
 });
+
+
+test("startup settings refresh runs in parallel with core data loading", () => {
+  const start = app.indexOf("window.initializeApp = async function()");
+  const end = app.indexOf("// ==========================================\\n// 3. ROLE-BASED ACCESS CONTROL", start);
+  const startup = app.slice(start, end);
+  assert.match(startup, /window\.settingsRefreshPromise = \(async \(\) =>/);
+  assert.match(startup, /window\.settingsRefreshPromise\.catch/);
+  assert.doesNotMatch(startup, /await window\.settingsRefreshPromise/);
+  assert.match(startup, /window\.fetchCompleteCloudTable\('students'\)/);
+});
+
+test("matching cached financial revisions avoid a redundant second verification request", () => {
+  const start = app.indexOf("window.initializeApp = async function()");
+  const end = app.indexOf("// ==========================================\\n// 3. ROLE-BASED ACCESS CONTROL", start);
+  const startup = app.slice(start, end);
+  assert.match(startup, /window\.__financialDataVerified = !startupCoreRevisions \|\| startupCoreCacheHit/);
+  assert.match(startup, /if \(startupCoreRevisions && !startupCoreCacheHit\)/);
+  assert.match(startup, /Cached financial snapshot verified; skipping duplicate revision check/);
+});
