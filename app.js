@@ -15695,72 +15695,69 @@ window.initializeApp = async function() {
             if (localSettings) window.settings = JSON.parse(localSettings);
         } catch (e) { console.warn("Local settings parse error:", e); }
 
-        try {
-    // 1. Fetch the data from global_settings
-    let { data: cloudRow, error: newErr } = await Promise.race([
-        window.supabaseClient
-        .from('global_settings')
-        .select('*')
-        .eq('id', 'master_settings') 
-        .maybeSingle(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Settings connection timed out')), 12000))
-    ]);
-
-    if (initializationGeneration !== window.appInitializationGeneration) return;
-
-    // 2. Map the flat database columns directly to window.settings
-    if (cloudRow) {
-        window.settings = {
-            ...window.settings,
-            foodFee: cloudRow.food_fee,
-            stationeryFeeECD: cloudRow.stationery_fee_ecd,
-            admissionFeeGrades: cloudRow.admission_fee_grades,
-            stationeryFeeGrades: cloudRow.stationery_fee_grades,
-            textbookFeeGrade: cloudRow.textbook_fee_grade,
-            admissionFeeECD: cloudRow.admission_fee_ecd,
-            transZoneAFull: cloudRow.trans_zone_a_full,
-            transZoneAOneWay: cloudRow.trans_zone_a_one_way,
-            transZoneBFull: cloudRow.trans_zone_b_full,
-            transZoneBOneWay: cloudRow.trans_zone_b_one_way,
-            transZoneCFull: cloudRow.trans_zone_c_full,
-            transZoneCOneWay: cloudRow.trans_zone_c_one_way,
-            transZoneDFull: cloudRow.trans_zone_d_full,
-            transZoneDOneWay: cloudRow.trans_zone_d_one_way,
-            transZoneEFull: cloudRow.trans_zone_e_full,
-            transZoneEOneWay: cloudRow.trans_zone_e_one_way,
-            transZoneFFull: cloudRow.trans_zone_f_full,
-            transZoneFOneWay: cloudRow.trans_zone_f_one_way
-        };
-    }
-
-    if (newErr) throw newErr;
-    if (typeof window.updateHeartbeatUI === 'function') window.updateHeartbeatUI('ONLINE');
-
-    // 4. Extract any legacy JSON properties, sync to localStorage, and update UI
-    if (cloudRow) {
-        const extracted = cloudRow.settings?.settings || cloudRow.settings || cloudRow.data || {};
-        window.settings = { ...window.settings, ...extracted };
-        window.staff = extracted.staff || window.staff || [];
-        window.announcements = extracted.announcements || window.announcements || [];
-        if (!window.settings.schoolName && extracted.schoolName) window.settings.schoolName = extracted.schoolName;
-        
-        localStorage.setItem('haven_settings', JSON.stringify(window.settings));
-        console.log("☁️ Global settings loaded from cloud successfully!");
-        
-        if (typeof window.populateAllSettingsUI === 'function') window.populateAllSettingsUI();
-        if (typeof window.populateSettingsUI === 'function') window.populateSettingsUI();
-    } else {
-        console.log("No cloud settings found. Using local/default settings.");
-    }
-
-} catch (err) { 
-    console.error("Could not verify master settings from cloud:", err);
-    if (typeof window.updateHeartbeatUI === 'function') {
-        window.updateHeartbeatUI(navigator.onLine ? 'RETRYING' : 'OFFLINE');
-    }
-}
+        // Refresh settings in parallel with core records. Settings must not hold
+        // the login-to-dashboard critical path open on slower mobile connections.
+        window.settingsRefreshPromise = (async () => {
+            try {
+                const { data: cloudRow, error: newErr } = await Promise.race([
+                    window.supabaseClient.from('global_settings').select('*')
+                        .eq('id', 'master_settings').maybeSingle(),
+                    new Promise((_, reject) => setTimeout(
+                        () => reject(new Error('Settings connection timed out')), 12000
+                    ))
+                ]);
+                if (initializationGeneration !== window.appInitializationGeneration) return;
+                if (newErr) throw newErr;
+                if (cloudRow) {
+                    window.settings = {
+                        ...window.settings,
+                        foodFee: cloudRow.food_fee,
+                        stationeryFeeECD: cloudRow.stationery_fee_ecd,
+                        admissionFeeGrades: cloudRow.admission_fee_grades,
+                        stationeryFeeGrades: cloudRow.stationery_fee_grades,
+                        textbookFeeGrade: cloudRow.textbook_fee_grade,
+                        admissionFeeECD: cloudRow.admission_fee_ecd,
+                        transZoneAFull: cloudRow.trans_zone_a_full,
+                        transZoneAOneWay: cloudRow.trans_zone_a_one_way,
+                        transZoneBFull: cloudRow.trans_zone_b_full,
+                        transZoneBOneWay: cloudRow.trans_zone_b_one_way,
+                        transZoneCFull: cloudRow.trans_zone_c_full,
+                        transZoneCOneWay: cloudRow.trans_zone_c_one_way,
+                        transZoneDFull: cloudRow.trans_zone_d_full,
+                        transZoneDOneWay: cloudRow.trans_zone_d_one_way,
+                        transZoneEFull: cloudRow.trans_zone_e_full,
+                        transZoneEOneWay: cloudRow.trans_zone_e_one_way,
+                        transZoneFFull: cloudRow.trans_zone_f_full,
+                        transZoneFOneWay: cloudRow.trans_zone_f_one_way
+                    };
+                    const extracted = cloudRow.settings?.settings || cloudRow.settings || cloudRow.data || {};
+                    window.settings = { ...window.settings, ...extracted };
+                    window.staff = extracted.staff || window.staff || [];
+                    window.announcements = extracted.announcements || window.announcements || [];
+                    if (!window.settings.schoolName && extracted.schoolName) window.settings.schoolName = extracted.schoolName;
+                    localStorage.setItem('haven_settings', JSON.stringify(window.settings));
+                    if (typeof window.populateAllSettingsUI === 'function') window.populateAllSettingsUI();
+                    if (typeof window.populateSettingsUI === 'function') window.populateSettingsUI();
+                    const enrollToggle = document.getElementById('indepOnlineEnrollToggle');
+                    if (enrollToggle) enrollToggle.checked = !!window.settings.enrollmentOpen;
+                    const pubEnrollBtn = document.getElementById('btnApplyOnlinePublic');
+                    if (pubEnrollBtn) pubEnrollBtn.style.display = window.settings.enrollmentOpen ? 'block' : 'none';
+                    if (typeof updateDashboard === 'function') updateDashboard();
+                }
+                if (typeof window.updateHeartbeatUI === 'function') window.updateHeartbeatUI('ONLINE');
+                console.info('[Startup] Settings refreshed in background.');
+            } catch (err) {
+                console.warn('Could not refresh master settings in background:', err);
+                if (typeof window.updateHeartbeatUI === 'function') {
+                    window.updateHeartbeatUI(navigator.onLine ? 'RETRYING' : 'OFFLINE');
+                }
+            }
+        })();
+        window.settingsRefreshPromise.catch(error => console.warn('Settings refresh failed:', error));
 
         if (!window.settings) window.settings = {};
+        if (!window.settings.schoolName) window.settings.schoolName = "Gudlance Preparatory";
+
         if (!window.settings.schoolName) window.settings.schoolName = "Gudlance Preparatory";
         
         const enrollToggle = document.getElementById('indepOnlineEnrollToggle');
@@ -15875,8 +15872,12 @@ window.initializeApp = async function() {
                 enrollmentStatus: record.status || record.enrollment_status || 'active'
             }));
         window.payments = paymentData;
-        window.__financialDataVerified = !startupCoreRevisions;
-        if (startupCoreRevisions) {
+        window.__financialDataVerified = !startupCoreRevisions || startupCoreCacheHit;
+        if (startupCoreCacheHit) {
+            // Cache revision already matches cloud; avoid a duplicate serial round-trip.
+            console.info('[Startup] Cached financial snapshot verified; skipping duplicate revision check.');
+        }
+        if (startupCoreRevisions && !startupCoreCacheHit) {
             try {
                 const { data: latestRevisionRows, error: latestRevisionError } = await window.supabaseClient
                     .from('core_sync_state')
