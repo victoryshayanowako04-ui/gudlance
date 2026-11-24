@@ -29372,32 +29372,23 @@ window.populateEventHistory = function() {
 };
 window.loadShopDataFromSource = async function() {
     try {
-        const [txData, studentData, ledgers] = await Promise.all([
-            window.fetchCompleteCloudTable('transactions'),
-            window.fetchCompleteCloudTable('students'),
-            window.fetchCompleteCloudTable('student_ledger')
-        ]);
-        window.transactions = txData;
-        
-        const ledgersByStudent = new Map();
-        ledgers.forEach(entry => {
-            const studentId = String(entry.student_id || '');
-            if (!ledgersByStudent.has(studentId)) ledgersByStudent.set(studentId, []);
-            ledgersByStudent.get(studentId).push(entry);
-        });
-        window.students = studentData.map(student => {
-            student.ledger = ledgersByStudent.get(String(student.id)) || [];
-            return student;
-        });
+        // Core students and ledgers are already loaded and cached during startup.
+        // Reuse them here instead of downloading the full ledger a second time.
+        if (!Array.isArray(window.students) || window.students.length === 0) {
+            if (typeof window.refreshCoreDataFromCloud !== 'function') {
+                throw new Error('Core student records are not available. Sync the system and retry.');
+            }
+            await window.refreshCoreDataFromCloud();
+        }
 
-        console.log("✅ Data successfully loaded from source!");
-        
+        const txData = await window.fetchCompleteCloudTable('transactions');
+        window.transactions = txData;
+
         if (typeof window.calculateShopBalance === 'function') {
             window.calculateShopBalance();
         }
-        
     } catch (error) {
-        console.error("Failed to load source data:", error);
+        console.error("Failed to load shop source data:", error);
     }
 };
 window.clearEnrollmentForm = function() {
