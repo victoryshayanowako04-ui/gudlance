@@ -1465,17 +1465,12 @@ window.attemptLogin = async function() {
             ['data->>name', true]
         ];
         let cloudUsers = [];
-        // Most accounts resolve with one indexed exact-match lookup.
+        // Check each indexed field with exact match first, then preserve case-insensitive fallback.
         for (const [column, jsonPath] of loginColumns) {
             cloudUsers = await lookupUserColumn(column, jsonPath, false);
             if (cloudUsers.length) break;
-        }
-        // Keep the previous case-insensitive login behavior for legacy account names.
-        if (!cloudUsers.length) {
-            for (const [column, jsonPath] of loginColumns) {
-                cloudUsers = await lookupUserColumn(column, jsonPath, true);
-                if (cloudUsers.length) break;
-            }
+            cloudUsers = await lookupUserColumn(column, jsonPath, true);
+            if (cloudUsers.length) break;
         }
         console.info(`[Startup] Targeted account lookup completed in ${((performance.now() - loginLookupStartedAt) / 1000).toFixed(1)}s`);
 
