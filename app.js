@@ -11847,86 +11847,94 @@ window.refreshCoreDataFromCloud = async function() {
     };
 
     // Revision metadata tracks inserts, edits, and deletes across all connected devices.
+    let cloudRevisions = null;
     try {
-        const cloudRevisions = await readCoreRevisions();
-        const cachedRevisions = JSON.parse(localStorage.getItem('haven_core_sync_revisions') || '{}');
-        const hasCoreCache = Array.isArray(window.students) &&
-            Array.isArray(window.__coreLedgerCache) &&
-            Array.isArray(window.payments);
-        const cacheMatches = hasCoreCache && tables.every(table =>
-            String(cachedRevisions[table] || '') === cloudRevisions[table]
-        );
-
-        if (cacheMatches) {
+        cloudRevisions = await readCoreRevisions();
+    } catch (revisionReadError) {
+        console.warn('Revision metadata unavailable; using verified full refresh:', revisionReadError);
+    }
+    if (cloudRevisions) {
+            const cloudRevisions = await readCoreRevisions();
+            const cachedRevisions = JSON.parse(localStorage.getItem('haven_core_sync_revisions') || '{}');
+            const hasCoreCache = Array.isArray(window.students) &&
+                Array.isArray(window.__coreLedgerCache) &&
+                Array.isArray(window.payments);
+            const cacheMatches = hasCoreCache && tables.every(table =>
+                String(cachedRevisions[table] || '') === cloudRevisions[table]
+            );
+    
+            if (cacheMatches) {
+                const confirmedRevisions = await readCoreRevisions();
+                if (!tables.every(table => confirmedRevisions[table] === cloudRevisions[table])) {
+                    throw new Error('Financial records changed while checking the cache. A full refresh is required.');
+                }
+                window.__financialDataVerified = true;
+                window.appDataReady = true;
+                console.info('[Cloud sync] Core records unchanged; verified cache reused.');
+                return { changed: false, revisions: confirmedRevisions };
+            }
+    
+            const [studentRows, ledgerRows, paymentRows] = await Promise.all(
+                tables.map(table => window.fetchCompleteCloudTable(table))
+            );
+            const studentsById = new Map();
+            studentRows.forEach(record => {
+                studentsById.set(String(record.id), {
+                    id: record.id, name: record.name, grade: record.grade,
+                    gender: record.gender || '', address: record.address || '',
+                    phone: record.phone || record.cell || '', dob: record.dob || '',
+                    enrollDate: record.enroll_date || record.enrollDate || '',
+                    paymentDeadline: record.payment_deadline || record.paymentDeadline || '',
+                    billingPlan: record.billing_plan || record.billingPlan || 'termly',
+                    balanceOwing: parseFloat(record.balance_owing || record.feesowed || 0),
+                    transportTier: parseFloat(record.transport_tier) || 0,
+                    transportMode: record.transport_mode || 'full', driver: record.driver || '',
+                    foodProgram: record.food_program === true || String(record.food_program) === 'true',
+                    stationeryPack: record.stationery_pack === true || String(record.stationery_pack) === 'true',
+                    textbooks: record.textbooks === true || String(record.textbooks) === 'true',
+                    enrollmentStatus: record.status || record.enrollment_status || 'active'
+                });
+            });
+            const ledgersByStudent = new Map();
+            ledgerRows.forEach(entry => {
+                const studentKey = String(entry.student_id || '');
+                if (!ledgersByStudent.has(studentKey)) ledgersByStudent.set(studentKey, []);
+                ledgersByStudent.get(studentKey).push(entry);
+            });
+            window.students = Array.from(studentsById.values()).map(student => ({
+                ...student, ledger: ledgersByStudent.get(String(student.id)) || []
+            }));
+            window.__coreLedgerCache = ledgerRows;
+            window.payments = paymentRows;
+    
+            // Do not certify a snapshot if another device wrote during the download.
+            const verifiedRevisions = await readCoreRevisions();
+            if (!tables.every(table => verifiedRevisions[table] === cloudRevisions[table])) {
+                throw new Error('Financial records changed during sync. Refresh again to verify the latest records.');
+            }
+    
+            const compactStudents = window.students.map(student => ({
+                id: student.id, name: student.name, grade: student.grade, gender: student.gender,
+                address: student.address, phone: student.phone, dob: student.dob, enrollDate: student.enrollDate,
+                paymentDeadline: student.paymentDeadline, billingPlan: student.billingPlan,
+                balanceOwing: student.balanceOwing, transportTier: student.transportTier,
+                transportMode: student.transportMode, driver: student.driver,
+                foodProgram: student.foodProgram, stationeryPack: student.stationeryPack,
+                textbooks: student.textbooks, enrollmentStatus: student.enrollmentStatus
+            }));
+            try {
+                localStorage.setItem('haven_cached_students', JSON.stringify(compactStudents));
+                localStorage.setItem('haven_cached_student_ledger', JSON.stringify(ledgerRows));
+                localStorage.setItem('haven_cached_payments', JSON.stringify(paymentRows));
+                localStorage.setItem('haven_core_sync_revisions', JSON.stringify(verifiedRevisions));
+            } catch (cacheError) {
+                console.warn('Could not persist the refreshed core cache:', cacheError);
+            }
             window.__financialDataVerified = true;
             window.appDataReady = true;
-            console.info('[Cloud sync] Core records unchanged; verified cache reused.');
-            return { changed: false, revisions: cloudRevisions };
-        }
-
-        const [studentRows, ledgerRows, paymentRows] = await Promise.all(
-            tables.map(table => window.fetchCompleteCloudTable(table))
-        );
-        const studentsById = new Map();
-        studentRows.forEach(record => {
-            studentsById.set(String(record.id), {
-                id: record.id, name: record.name, grade: record.grade,
-                gender: record.gender || '', address: record.address || '',
-                phone: record.phone || record.cell || '', dob: record.dob || '',
-                enrollDate: record.enroll_date || record.enrollDate || '',
-                paymentDeadline: record.payment_deadline || record.paymentDeadline || '',
-                billingPlan: record.billing_plan || record.billingPlan || 'termly',
-                balanceOwing: parseFloat(record.balance_owing || record.feesowed || 0),
-                transportTier: parseFloat(record.transport_tier) || 0,
-                transportMode: record.transport_mode || 'full', driver: record.driver || '',
-                foodProgram: record.food_program === true || String(record.food_program) === 'true',
-                stationeryPack: record.stationery_pack === true || String(record.stationery_pack) === 'true',
-                textbooks: record.textbooks === true || String(record.textbooks) === 'true',
-                enrollmentStatus: record.status || record.enrollment_status || 'active'
-            });
-        });
-        const ledgersByStudent = new Map();
-        ledgerRows.forEach(entry => {
-            const studentKey = String(entry.student_id || '');
-            if (!ledgersByStudent.has(studentKey)) ledgersByStudent.set(studentKey, []);
-            ledgersByStudent.get(studentKey).push(entry);
-        });
-        window.students = Array.from(studentsById.values()).map(student => ({
-            ...student, ledger: ledgersByStudent.get(String(student.id)) || []
-        }));
-        window.__coreLedgerCache = ledgerRows;
-        window.payments = paymentRows;
-
-        // Do not certify a snapshot if another device wrote during the download.
-        const verifiedRevisions = await readCoreRevisions();
-        if (!tables.every(table => verifiedRevisions[table] === cloudRevisions[table])) {
-            throw new Error('Financial records changed during sync. Refresh again to verify the latest records.');
-        }
-
-        const compactStudents = window.students.map(student => ({
-            id: student.id, name: student.name, grade: student.grade, gender: student.gender,
-            address: student.address, phone: student.phone, dob: student.dob, enrollDate: student.enrollDate,
-            paymentDeadline: student.paymentDeadline, billingPlan: student.billingPlan,
-            balanceOwing: student.balanceOwing, transportTier: student.transportTier,
-            transportMode: student.transportMode, driver: student.driver,
-            foodProgram: student.foodProgram, stationeryPack: student.stationeryPack,
-            textbooks: student.textbooks, enrollmentStatus: student.enrollmentStatus
-        }));
-        try {
-            localStorage.setItem('haven_cached_students', JSON.stringify(compactStudents));
-            localStorage.setItem('haven_cached_student_ledger', JSON.stringify(ledgerRows));
-            localStorage.setItem('haven_cached_payments', JSON.stringify(paymentRows));
-            localStorage.setItem('haven_core_sync_revisions', JSON.stringify(verifiedRevisions));
-        } catch (cacheError) {
-            console.warn('Could not persist the refreshed core cache:', cacheError);
-        }
-        window.__financialDataVerified = true;
-        window.appDataReady = true;
-        console.info('[Cloud sync] Core records refreshed and revision-verified.');
-        return { changed: true, revisions: verifiedRevisions };
-    } catch (revisionSyncError) {
-        // If revision metadata is unavailable, retain the older full-download path.
-        console.warn('Revision-based core sync unavailable; using verified full refresh:', revisionSyncError);
+            console.info('[Cloud sync] Core records refreshed and revision-verified.');
+            return { changed: true, revisions: verifiedRevisions };
+    
     }
 
     const cacheTimes = JSON.parse(localStorage.getItem('haven_core_sync_times') || '{}');
@@ -15769,7 +15777,6 @@ window.initializeApp = async function() {
             window.updateLoadingStatus('Loading students, ledger, and payments...', 20);
         }
 
-        const isPhone = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
         let studentData, ledgerData, paymentData;
         let startupCoreRevisions = null;
         let startupCoreCacheHit = false;
@@ -15808,54 +15815,6 @@ window.initializeApp = async function() {
             ledgerData = window.__coreLedgerCache;
             paymentData = window.payments;
             console.info('[Startup] Core cache matches cloud revisions; skipping full financial downloads.');
-        } else if (isPhone) {
-            const fetchPhoneCore = async (tableName, orderColumn = 'id') => {
-                const { data, error } = await window.supabaseClient
-                    .from(tableName)
-                    .select('*')
-                    .order(orderColumn, { ascending: false })
-                    .range(0, 1999);
-                if (error) throw error;
-                return data || [];
-            };
-
-            try {
-                [studentData, ledgerData, paymentData] = await Promise.race([
-                    Promise.all([
-                        fetchPhoneCore('students', 'id'),
-                        fetchPhoneCore('student_ledger', 'date'),
-                        fetchPhoneCore('payments', 'created_at')
-                    ]),
-                    new Promise((_, reject) => setTimeout(
-                        () => reject(new Error('Phone core cloud connection timed out')),
-                        18000
-                    ))
-                ]);
-            } catch (phoneCoreError) {
-                console.warn('Phone cloud core refresh failed; retaining usable cached records:', phoneCoreError);
-                studentData = (Array.isArray(window.students) ? window.students : []).map(student => ({
-                    id: student.id,
-                    name: student.name,
-                    grade: student.grade,
-                    gender: student.gender,
-                    address: student.address,
-                    phone: student.phone,
-                    dob: student.dob,
-                    enroll_date: student.enrollDate,
-                    payment_deadline: student.paymentDeadline,
-                    billing_plan: student.billingPlan,
-                    balance_owing: student.balanceOwing,
-                    transport_tier: student.transportTier,
-                    transport_mode: student.transportMode,
-                    driver: student.driver,
-                    food_program: student.foodProgram,
-                    stationery_pack: student.stationeryPack,
-                    textbooks: student.textbooks,
-                    status: student.enrollmentStatus
-                }));
-                ledgerData = window.__coreLedgerCache || [];
-                paymentData = window.payments || [];
-            }
         } else {
             [studentData, ledgerData, paymentData] = await fetchGroup([
                 window.fetchCompleteCloudTable('students'),
@@ -15864,23 +15823,6 @@ window.initializeApp = async function() {
             ]);
         }
         if (initializationGeneration !== window.appInitializationGeneration) return;
-
-        if (isPhone && window.__hasCachedCore) {
-            const cachedById = new Map((window.students || []).map(student => [String(student.id), student]));
-            studentData.forEach(record => {
-                const existing = cachedById.get(String(record.id));
-                cachedById.set(String(record.id), { ...existing, ...record });
-            });
-            studentData = Array.from(cachedById.values());
-
-            const ledgerById = new Map((window.__coreLedgerCache || []).map(entry => [String(entry.id), entry]));
-            ledgerData.forEach(entry => ledgerById.set(String(entry.id), entry));
-            ledgerData = Array.from(ledgerById.values());
-
-            const paymentById = new Map((window.payments || []).map(entry => [String(entry.id), entry]));
-            paymentData.forEach(entry => paymentById.set(String(entry.id), entry));
-            paymentData = Array.from(paymentById.values());
-        }
 
         // Make student, ledger, and payment data available before loading other sections.
         const ledgersByStudent = new Map();
@@ -15914,29 +15856,34 @@ window.initializeApp = async function() {
                 enrollmentStatus: record.status || record.enrollment_status || 'active'
             }));
         window.payments = paymentData;
-        window.__financialDataVerified = true;
-        if (startupCoreRevisions && !startupCoreCacheHit) {
+        window.__financialDataVerified = !startupCoreRevisions;
+        if (startupCoreRevisions) {
             try {
                 const { data: latestRevisionRows, error: latestRevisionError } = await window.supabaseClient
                     .from('core_sync_state')
                     .select('table_name,revision')
                     .in('table_name', ['students', 'student_ledger', 'payments']);
-                if (!latestRevisionError && Array.isArray(latestRevisionRows) && latestRevisionRows.length === 3) {
-                    const latestRevisions = Object.fromEntries(
-                        latestRevisionRows.map(row => [row.table_name, String(row.revision)])
-                    );
-                    const stableSnapshot = ['students', 'student_ledger', 'payments'].every(table =>
-                        latestRevisions[table] === startupCoreRevisions[table]
-                    );
-                    if (stableSnapshot) {
-                        localStorage.setItem('haven_core_sync_revisions', JSON.stringify(latestRevisions));
-                    } else {
-                        localStorage.removeItem('haven_core_sync_revisions');
-                        console.warn('[Startup] Core records changed during download; next sync will re-verify them.');
-                    }
+                if (latestRevisionError) throw latestRevisionError;
+                if (!Array.isArray(latestRevisionRows) || latestRevisionRows.length !== 3) {
+                    throw new Error('Core sync revision metadata is incomplete.');
+                }
+                const latestRevisions = Object.fromEntries(
+                    latestRevisionRows.map(row => [row.table_name, String(row.revision)])
+                );
+                const stableSnapshot = ['students', 'student_ledger', 'payments'].every(table =>
+                    latestRevisions[table] === startupCoreRevisions[table]
+                );
+                if (stableSnapshot) {
+                    localStorage.setItem('haven_core_sync_revisions', JSON.stringify(latestRevisions));
+                    window.__financialDataVerified = true;
+                } else {
+                    localStorage.removeItem('haven_core_sync_revisions');
+                    window.__financialDataVerified = false;
+                    console.warn('[Startup] Core records changed during download; financial actions remain paused until refresh.');
                 }
             } catch (revisionSaveError) {
-                console.warn('Could not save verified core revision metadata:', revisionSaveError);
+                window.__financialDataVerified = false;
+                console.warn('Could not verify core revision metadata:', revisionSaveError);
             }
         }
         try {
