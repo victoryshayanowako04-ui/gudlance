@@ -15973,6 +15973,7 @@ window.initializeApp = async function() {
         const pendingNavigation = window.pendingAppNavigation;
         window.pendingAppNavigation = null;
         if (pendingNavigation) window.navTo(pendingNavigation);
+        else if (typeof window.ensureStartupDashboardVisible === 'function') window.ensureStartupDashboardVisible();
         if (typeof window.updateLoadingStatus === 'function') {
             window.updateLoadingStatus('Core records ready. Loading remaining sections...', 50);
         }
@@ -25111,6 +25112,35 @@ window.waivedEnrollmentFees = window.waivedEnrollmentFees || [];
 // ==========================================
 // 📡 CLOUD SYNC VISUALIZER CONTROLLER
 // ==========================================
+window.ensureStartupDashboardVisible = function() {
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent) return false;
+
+    // A completed sync must never leave the application shell hidden or inert.
+    mainContent.style.display = '';
+    mainContent.style.visibility = 'visible';
+    mainContent.removeAttribute('hidden');
+    mainContent.removeAttribute('inert');
+    mainContent.removeAttribute('aria-busy');
+
+    const activeSection = Array.from(mainContent.querySelectorAll('.section'))
+        .find(section => section.classList.contains('active') &&
+            getComputedStyle(section).display !== 'none');
+    if (activeSection) return true;
+
+    // The dashboard is the safe default landing page after authentication.
+    const dashboard = document.getElementById('dashboard');
+    if (!dashboard) return false;
+
+    mainContent.querySelectorAll('.section').forEach(section => {
+        section.classList.remove('active');
+        section.style.display = 'none';
+    });
+    dashboard.style.display = 'block';
+    dashboard.classList.add('active');
+    return true;
+};
+
 window.setAppDataInteractivity = function(isReady) {
     const appContent = document.querySelector('.main-content');
     if (appContent) {
@@ -25156,9 +25186,13 @@ window.updateLoadingStatus = function(message, progressPercent, keepVisible = fa
         }
         if (startupRetryButton) startupRetryButton.style.display = keepVisible && progressPercent < 100 ? 'flex' : 'none';
         if (progressPercent >= 100 && !keepVisible) {
-            window.loadingHideTimer = setTimeout(() => {
-                if (startupBanner) startupBanner.style.display = 'none';
-            }, 800);
+            // The sync is complete. Remove the status layer immediately so it
+            // cannot obscure the dashboard on slower mobile browsers.
+            startupBanner.style.display = 'none';
+            if (overlay) overlay.style.display = 'none';
+            if (typeof window.ensureStartupDashboardVisible === 'function') {
+                window.ensureStartupDashboardVisible();
+            }
         }
         return;
     }
