@@ -194,3 +194,23 @@ test("login checks indexed columns concurrently while preserving original field 
   assert.match(login, /cloudUsers = await runLoginLookupBatch\(true\)/);
   assert.doesNotMatch(login, /for \(const \[column, jsonPath\] of loginColumns\)\s*\{\s*cloudUsers = await lookupUserColumn/);
 });
+
+
+test("completed startup reveals the dashboard and removes the finished sync banner", () => {
+  assert.match(app, /window\.ensureStartupDashboardVisible = function\(\)/);
+  const start = app.indexOf("window.initializeApp = async function()");
+  const end = app.indexOf("window.setAppDataInteractivity = function(isReady)", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const startup = app.slice(start, end);
+  assert.match(startup, /else if \(typeof window\.ensureStartupDashboardVisible === 'function'\) window\.ensureStartupDashboardVisible\(\)/);
+
+  const statusStart = app.indexOf("window.updateLoadingStatus = function(message, progressPercent");
+  const statusEnd = app.indexOf("window.showCloudLoadFailure = function(error)", statusStart);
+  assert.notEqual(statusStart, -1);
+  assert.notEqual(statusEnd, -1);
+  const status = app.slice(statusStart, statusEnd);
+  assert.match(status, /progressPercent >= 100 && !keepVisible[\s\S]*startupBanner\.style\.display = 'none'/);
+  assert.match(status, /if \(overlay\) overlay\.style\.display = 'none'/);
+  assert.match(status, /window\.ensureStartupDashboardVisible\(\)/);
+});
