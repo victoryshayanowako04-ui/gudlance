@@ -11803,6 +11803,7 @@ window.processPaynowPayment = async function() {
 // ==========================================
 
 window.refreshCoreDataFromCloud = async function() {
+    window.__financialDataVerified = false;
     if (!navigator.onLine) throw new Error('Offline');
     if (!window.supabaseClient) throw new Error('Cloud database is unavailable.');
 
