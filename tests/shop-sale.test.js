@@ -71,3 +71,25 @@ test("database balance function matches the app ledger categories and void rules
   }
   assert.match(feeMigration, /NOT IN \('VOID', 'VOIDED', 'REVERSAL'\)/);
 });
+
+test("cached-only startup cannot authorize financial writes", () => {
+  assert.match(app, /window\.__financialDataVerified = false;/);
+  assert.match(app, /window\.ensureFreshFinancialData = function\(\)/);
+  assert.match(app, /window\.__financialDataVerified === true && navigator\.onLine/);
+  for (const handler of [
+    "window.generateFees = async function()",
+    "window.voidLedgerCharge = async function",
+    "window.processEventPaymentOnce = async function()",
+    "window.addInstantCharge = async function",
+    "window.processPayment = async function()",
+    "window.processPaynowPayment = async function()",
+    "window.verifyEcoCashPayment = async function()",
+    "window.processVoid = async function",
+    "window.voidTransaction = async function",
+    "window.processPrePayment = async function()"
+  ]) {
+    const start = app.indexOf(handler);
+    assert.notEqual(start, -1, handler + " must exist");
+    assert.ok(app.slice(start, start + 220).includes("ensureFreshFinancialData"), handler + " must require verified data");
+  }
+});
