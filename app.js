@@ -1951,6 +1951,12 @@ window.navTo = function(tabId) {
             renderPayrollHistory();
         }
     }
+    // Load only the data required by the section the user opened.
+    if (typeof window.ensureSectionData === 'function') {
+        window.ensureSectionData(tabId).catch(loadError =>
+            console.error(`Could not load data for section ${tabId}:`, loadError)
+        );
+    }
 };
 
 window.closeModal = function(id) { 
@@ -15979,112 +15985,151 @@ window.initializeApp = async function() {
             window.updateLoadingStatus('Core records ready. Loading remaining sections...', 50);
         }
 
-        const backgroundLoad = (async () => {
-            const attendanceCutoff = new Date();
-            attendanceCutoff.setFullYear(attendanceCutoff.getFullYear() - 1);
-            const attendanceCutoffValue = attendanceCutoff.toISOString().slice(0, 10);
-            const fetchRecentAttendance = async () => {
+        // Secondary datasets are fetched only when their section is opened.
+        // Core student, ledger and payment verification above remains unchanged.
+        window.__sectionDataPromises = new Map();
+        window.__sectionDataGeneration = initializationGeneration;
+
+        const sectionDatasetLoaders = {
+            classes: async () => {
+                const rows = await window.fetchCompleteCloudTable('classes', 1000, 'level');
+                window.officialClasses = rows.map(row => ({
+                    ...row,
+                    name: row.name || row.level || row.className || 'Unnamed Class',
+                    limit: row.limit || row.capacity || 30
+                }));
+                localStorage.setItem('haven_classes', JSON.stringify(window.officialClasses));
+            },
+            fee_structures: async () => {
+                const rows = await window.fetchCompleteCloudTable('fee_structures');
+                const feeObj = {};
+                rows.forEach(row => { feeObj[row.id || row.level || row.grade] = row.data || row.fees || []; });
+                window.feeStructures = feeObj;
+                localStorage.setItem('havenFeeStructures', JSON.stringify(window.feeStructures));
+            },
+            inventory: async () => {
+                const rows = await window.fetchCompleteCloudTable('inventory');
+                window.inventory = rows.map(row => row.data || row);
+                localStorage.setItem('haven_inventory', JSON.stringify(window.inventory));
+            },
+            expenses: async () => {
+                const rows = await window.fetchCompleteCloudTable('expenses');
+                window.expenses = rows.map(row => row.data || row);
+                localStorage.setItem('haven_expenses', JSON.stringify(window.expenses));
+            },
+            payroll_history: async () => {
+                const rows = await window.fetchCompleteCloudTable('payroll_history');
+                window.payrollHistory = rows.map(row => row.data || row);
+                localStorage.setItem('haven_payroll_history', JSON.stringify(window.payrollHistory));
+            },
+            academic_reports: async () => {
+                const rows = await window.fetchCompleteCloudTable('academic_reports');
+                window.academicReports = rows.map(row => row.data || row);
+            },
+            teachers: async () => {
+                const rows = await window.fetchCompleteCloudTable('teachers');
+                window.teachers = rows.map(row => row.data || row);
+            },
+            allocations: async () => {
+                const rows = await window.fetchCompleteCloudTable('allocations');
+                window.allocations = rows.map(row => row.data || row);
+            },
+            attendance: async () => {
+                const cutoff = new Date();
+                cutoff.setFullYear(cutoff.getFullYear() - 1);
                 const { data, error } = await window.supabaseClient
                     .from('attendance')
                     .select('id,date,class,recordedBy,records')
-                    .gte('date', attendanceCutoffValue)
+                    .gte('date', cutoff.toISOString().slice(0, 10))
                     .order('date', { ascending: false })
                     .limit(5000);
                 if (error) throw error;
-                return data || [];
-            };
-            const fetchRecentTransactions = async () => {
+                window.attendanceData = data || [];
+                localStorage.setItem('havenAttendance', JSON.stringify(window.attendanceData));
+            },
+            transactions: async () => {
+                const cutoff = new Date();
+                cutoff.setFullYear(cutoff.getFullYear() - 1);
                 const { data, error } = await window.supabaseClient
                     .from('transactions')
                     .select('id,date,receipt_no,status,student_id,amount,type,category,paymentmethod,cartdetails,processed_by')
-                    .gte('date', attendanceCutoffValue)
+                    .gte('date', cutoff.toISOString().slice(0, 10))
                     .order('date', { ascending: false })
                     .limit(5000);
                 if (error) throw error;
-                const rows = data || [];
-                window.transactions = rows;
-                localStorage.setItem('havenTransactions', JSON.stringify(rows));
-                return rows;
-            };
-            const [clsData, feeData, , , , , reportData, teacherData, allocationData, attendanceData, cloudUserData] = await fetchGroup([
-                window.fetchCompleteCloudTable('classes', 1000, 'level'),
-                window.fetchCompleteCloudTable('fee_structures'),
-                fetchRecentTransactions(),
-                fetchTable('inventory', 'inventory', 'haven_inventory'),
-                fetchTable('expenses', 'expenses', 'haven_expenses'),
-                fetchTable('payroll_history', 'payrollHistory', 'haven_payroll_history'),
-                fetchTable('academic_reports', 'academicReports', 'haven_academic_reports'),
-                window.fetchCompleteCloudTable('teachers'),
-                window.fetchCompleteCloudTable('allocations'),
-                fetchRecentAttendance(),
-                cachedLoginUsers || window.fetchCompleteCloudTable('users')
-            ]);
-            if (initializationGeneration !== window.appInitializationGeneration) return;
-            window.officialClasses = clsData.map(c => ({
-                ...c,
-                name: c.name || c.level || c.className || 'Unnamed Class',
-                limit: c.limit || c.capacity || 30
+                window.transactions = data || [];
+                localStorage.setItem('havenTransactions', JSON.stringify(window.transactions));
+            },
+            users: async () => {
+                const rows = await window.fetchCompleteCloudTable('users');
+                window.users = rows.length ? rows.map(row => row.data || row) : [];
+            }
+        };
+
+        const sectionDatasets = {
+            enrollment: ['classes', 'fee_structures'],
+            attendance: ['attendance'],
+            academics: ['academic_reports', 'teachers', 'allocations'],
+            shop: ['inventory'],
+            finance: ['transactions', 'expenses'],
+            payroll: ['payroll_history', 'teachers'],
+            teachers: ['teachers', 'allocations'],
+            reports: ['academic_reports', 'attendance', 'transactions', 'expenses', 'payroll_history'],
+            users: ['users']
+        };
+
+        window.ensureSectionData = async function(sectionId) {
+            if (window.__sectionDataGeneration !== initializationGeneration ||
+                initializationGeneration !== window.appInitializationGeneration) return;
+            const datasets = sectionDatasets[sectionId] || [];
+            if (!datasets.length) return;
+
+            await Promise.all(datasets.map(dataset => {
+                if (window.__sectionDataPromises.has(dataset)) {
+                    return window.__sectionDataPromises.get(dataset);
+                }
+                const loader = sectionDatasetLoaders[dataset];
+                if (!loader) return Promise.resolve();
+                const request = Promise.resolve().then(loader).catch(error => {
+                    window.__sectionDataPromises.delete(dataset);
+                    throw error;
+                });
+                window.__sectionDataPromises.set(dataset, request);
+                return request;
             }));
-            localStorage.setItem('haven_classes', JSON.stringify(window.officialClasses));
-            const feeObj = {};
-            feeData.forEach(row => { feeObj[row.id || row.level || row.grade] = row.data || row.fees || []; });
-            window.feeStructures = feeObj;
-            localStorage.setItem('havenFeeStructures', JSON.stringify(window.feeStructures));
-            window.academicReports = reportData.map(row => row.data || row);
-            window.teachers = teacherData.map(row => row.data || row);
-            window.allocations = allocationData.map(row => row.data || row);
-            window.attendanceData = attendanceData.map(row => row.data || row);
-            localStorage.setItem('havenAttendance', JSON.stringify(window.attendanceData));
-            window.users = cloudUserData.length > 0 ? cloudUserData.map(row => row.data || row) : [];
-            if (typeof window.fetchOnlineUsers === 'function') {
-                window.fetchOnlineUsers(cloudUserData).catch(fetchError =>
-                    console.error('Online-user background refresh failed:', fetchError)
-                );
-            }
 
-            if (typeof renderFeeStructures === 'function') renderFeeStructures();
-            if (typeof renderStaffList === 'function') renderStaffList();
-            if (typeof renderAnnouncements === 'function') renderAnnouncements();
-            if (typeof updateDashboard === 'function') updateDashboard();
-            if (typeof renderInventory === 'function') renderInventory();
-            if (typeof renderExpenses === 'function') renderExpenses();
-            if (typeof updateAllClassDropdowns === 'function') updateAllClassDropdowns();
-            if (typeof renderCustomClasses === 'function') renderCustomClasses();
-            if (typeof renderStaffDirectory === 'function') renderStaffDirectory();
-            if (typeof updateTeacherDropdowns === 'function') updateTeacherDropdowns();
-            if (typeof renderAllocationsTable === 'function') renderAllocationsTable();
-            if (typeof renderPayrollHistory === 'function') renderPayrollHistory();
-            if (typeof initAttendanceTab === 'function') initAttendanceTab();
-            if (typeof calculateReconciliation === 'function') calculateReconciliation();
-            if (typeof window.populateEventHistory === 'function') window.populateEventHistory();
-            if (typeof window.renderEcoCashTable === 'function') window.renderEcoCashTable();
-            if (typeof window.renderSettingsSummary === 'function') window.renderSettingsSummary(window.settings);
-
-            if (window.settings && window.settings.zigRate) {
-                const rateInput = document.getElementById('zigRate');
-                if (rateInput) rateInput.value = window.settings.zigRate;
-            }
-
-            console.log("🌟 All school data loaded.");
-            window.startupLoadProgress.active = false;
-            if (typeof window.updateLoadingStatus === 'function') window.updateLoadingStatus("System Ready!", 100);
-            if (typeof window.fetchAndRenderEventHistoryTable === 'function') {
-                window.fetchAndRenderEventHistoryTable();
-            }
-        })();
-
-        backgroundLoad.catch(backgroundError => {
             if (initializationGeneration !== window.appInitializationGeneration) return;
-            window.startupLoadProgress.active = false;
-            console.error('Background section data could not be loaded:', backgroundError);
-            if (typeof window.updateLoadingStatus === 'function') {
-                window.updateLoadingStatus(
-                    `Core records are ready, but background data failed to load: ${backgroundError.message || backgroundError}`,
-                    40,
-                    true
-                );
+            if (sectionId === 'enrollment') {
+                if (typeof window.updateAllClassDropdowns === 'function') window.updateAllClassDropdowns();
+                if (typeof window.renderCustomClasses === 'function') window.renderCustomClasses();
+                if (typeof renderFeeStructures === 'function') renderFeeStructures();
+                if (typeof updateStudentTable === 'function') updateStudentTable();
             }
-        });
+            if (sectionId === 'attendance' && typeof initAttendanceTab === 'function') initAttendanceTab();
+            if (sectionId === 'academics' && typeof updateTeacherDropdowns === 'function') updateTeacherDropdowns();
+            if (sectionId === 'shop' && typeof renderInventory === 'function') renderInventory();
+            if (sectionId === 'finance') {
+                if (typeof renderExpenses === 'function') renderExpenses();
+                if (typeof calculateReconciliation === 'function') calculateReconciliation();
+                if (typeof window.renderEcoCashTable === 'function') window.renderEcoCashTable();
+            }
+            if (sectionId === 'payroll') {
+                if (typeof window.updatePayrollDropdown === 'function') window.updatePayrollDropdown();
+                if (typeof renderPayrollHistory === 'function') renderPayrollHistory();
+            }
+            if (sectionId === 'teachers') {
+                if (typeof renderStaffList === 'function') renderStaffList();
+                if (typeof renderStaffDirectory === 'function') renderStaffDirectory();
+                if (typeof renderAllocationsTable === 'function') renderAllocationsTable();
+                if (typeof updateTeacherDropdowns === 'function') updateTeacherDropdowns();
+            }
+            if (sectionId === 'reports' && typeof calculateReconciliation === 'function') calculateReconciliation();
+        };
+
+        window.startupLoadProgress = { active: false, completed: 0, total: 0, generation: initializationGeneration };
+        if (typeof window.updateLoadingStatus === 'function') {
+            window.updateLoadingStatus('System ready. Sections load when opened.', 100);
+        }
 
         console.info(`[Startup] Core data available in ${((performance.now() - initializationStartedAt) / 1000).toFixed(1)}s`);
 
