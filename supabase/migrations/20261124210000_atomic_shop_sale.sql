@@ -14,32 +14,31 @@ ALTER TABLE public.payments
 ALTER SEQUENCE public.payments_id_seq OWNED BY public.payments.id;
 GRANT USAGE, SELECT ON SEQUENCE public.payments_id_seq TO anon, authenticated;
 
-CREATE OR REPLACE FUNCTION public.process_shop_sale(
-  p_sale jsonb,
-  p_ledger jsonb,
-  p_payment jsonb,
-  p_stock jsonb,
-  p_credit_applied numeric DEFAULT 0
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = pg_catalog, public
+CREATE OR REPLACE FUNCTION public.process_shop_sale(p_sale jsonb, p_ledger jsonb, p_payment jsonb, p_stock jsonb, p_credit_applied numeric DEFAULT 0)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'pg_catalog', 'public'
 AS $function$
 DECLARE
   v_receipt text;
   v_sale_id text;
   v_student_id text;
   v_item record;
+  v_price_row record;
+  v_inventory_price numeric;
   v_available_credit numeric := 0;
   v_new_balance numeric := 0;
+  v_cart_total numeric := 0;
+  v_discount numeric := 0;
+  v_total_qty bigint := 0;
   v_ledger jsonb;
   v_payment_row jsonb;
   v_existing_receipt boolean;
 BEGIN
   IF p_sale IS NULL OR jsonb_typeof(p_sale) <> 'object'
      OR p_stock IS NULL OR jsonb_typeof(p_stock) <> 'array'
-     OR p_ledger IS NULL OR jsonb_typeof(p_ledger) <> 'array' THEN
+     OR p_ledger IS NULL OR jsonb_typeof(p_ledger) <> 'array'
+     OR jsonb_typeof(p_sale->'cartdetails') <> 'array' THEN
     RAISE EXCEPTION 'Invalid shop sale payload';
   END IF;
 
@@ -50,13 +49,64 @@ BEGIN
   IF v_receipt IS NULL OR v_sale_id IS NULL OR v_student_id IS NULL THEN
     RAISE EXCEPTION 'Sale reference, sale ID and student ID are required';
   END IF;
-  IF jsonb_array_length(p_stock) = 0 THEN
+  IF jsonb_array_length(p_stock) = 0 OR jsonb_array_length(p_sale->'cartdetails') = 0 THEN
     RAISE EXCEPTION 'A sale must contain at least one stock item';
   END IF;
-  IF COALESCE((p_sale->>'amount')::numeric, 0) < 0
+
+  SELECT
+    COALESCE(SUM(
+      COALESCE(NULLIF(line->>'price', '')::numeric, 0) *
+      COALESCE(NULLIF(line->>'cartQty', '')::numeric, 1)
+    ), 0),
+    COALESCE(SUM(COALESCE(NULLIF(line->>'cartQty', '')::bigint, 1)), 0)
+  INTO v_cart_total, v_total_qty
+  FROM jsonb_array_elements(p_sale->'cartdetails') AS cart(line);
+
+  v_discount := COALESCE(NULLIF(p_sale->>'discount', '')::numeric, 0);
+  IF v_cart_total <= 0 OR v_discount < 0 OR v_discount > v_cart_total
+     OR ABS(round(v_cart_total - v_discount, 2) - round(COALESCE((p_sale->>'amount')::numeric, 0), 2)) > 0.005
+     OR v_total_qty <> COALESCE((p_sale->>'qty')::bigint, -1)
      OR COALESCE((p_sale->>'total')::numeric, 0) < 0
      OR COALESCE(p_credit_applied, 0) < 0 THEN
-    RAISE EXCEPTION 'Sale amounts cannot be negative';
+    RAISE EXCEPTION 'Sale totals, discount or quantities are invalid';
+  END IF;
+
+  IF EXISTS (
+    SELECT item_id, SUM(quantity)
+    FROM (
+      SELECT line->>'id' AS item_id,
+             COALESCE(NULLIF(line->>'cartQty', '')::bigint, 1) AS quantity
+      FROM jsonb_array_elements(p_sale->'cartdetails') AS cart(line)
+    ) details
+    GROUP BY item_id
+    EXCEPT
+    SELECT item_id, quantity
+    FROM jsonb_to_recordset(p_stock) AS stock(item_id text, quantity bigint)
+  ) OR EXISTS (
+    SELECT item_id, quantity
+    FROM jsonb_to_recordset(p_stock) AS stock(item_id text, quantity bigint)
+    EXCEPT
+    SELECT item_id, SUM(quantity)
+    FROM (
+      SELECT line->>'id' AS item_id,
+             COALESCE(NULLIF(line->>'cartQty', '')::bigint, 1) AS quantity
+      FROM jsonb_array_elements(p_sale->'cartdetails') AS cart(line)
+    ) details
+    GROUP BY item_id
+  ) THEN
+    RAISE EXCEPTION 'Stock quantities do not match the submitted cart';
+  END IF;
+
+  IF p_payment IS NOT NULL AND jsonb_typeof(p_payment) = 'object'
+     AND ABS(COALESCE((p_payment->>'amount')::numeric, 0) - COALESCE((p_sale->>'total')::numeric, 0)) > 0.005 THEN
+    RAISE EXCEPTION 'Payment amount does not match the sale cash received';
+  END IF;
+  IF p_payment IS NULL AND COALESCE((p_sale->>'total')::numeric, 0) > 0.005 THEN
+    RAISE EXCEPTION 'Payment record is required when cash was received';
+  END IF;
+  IF v_student_id = 'WALK-IN'
+     AND ABS(round(COALESCE((p_sale->>'total')::numeric, 0), 2) - round(COALESCE((p_sale->>'amount')::numeric, 0), 2)) > 0.005 THEN
+    RAISE EXCEPTION 'Walk-in sales must be paid in full';
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtextextended(v_receipt, 0));
@@ -103,6 +153,30 @@ BEGIN
   ELSIF COALESCE(p_credit_applied, 0) > 0 THEN
     RAISE EXCEPTION 'Walk-in sales cannot use student credit';
   END IF;
+
+  FOR v_price_row IN
+    SELECT line->>'id' AS item_id,
+           MIN((line->>'price')::numeric) AS min_price,
+           MAX((line->>'price')::numeric) AS max_price
+    FROM jsonb_array_elements(p_sale->'cartdetails') AS cart(line)
+    GROUP BY line->>'id'
+    ORDER BY line->>'id'
+  LOOP
+    IF v_price_row.item_id IS NULL OR v_price_row.min_price IS NULL
+       OR ABS(v_price_row.max_price - v_price_row.min_price) > 0.005 THEN
+      RAISE EXCEPTION 'Invalid or inconsistent item price in cart';
+    END IF;
+
+    SELECT price::numeric INTO v_inventory_price
+    FROM public.inventory
+    WHERE id = v_price_row.item_id
+    FOR UPDATE;
+
+    IF NOT FOUND OR v_inventory_price IS NULL
+       OR ABS(round(v_inventory_price, 2) - round(v_price_row.min_price, 2)) > 0.005 THEN
+      RAISE EXCEPTION 'Price changed for inventory item %. Refresh the cart and retry.', v_price_row.item_id;
+    END IF;
+  END LOOP;
 
   FOR v_item IN
     SELECT item_id, quantity
@@ -207,7 +281,8 @@ BEGIN
     'balance_owing', CASE WHEN v_student_id = 'WALK-IN' THEN NULL ELSE round(v_new_balance, 2) END
   );
 END;
-$function$;
+$function$
+
 
 REVOKE ALL ON FUNCTION public.process_shop_sale(jsonb, jsonb, jsonb, jsonb, numeric) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.process_shop_sale(jsonb, jsonb, jsonb, jsonb, numeric) TO anon, authenticated;
