@@ -11854,7 +11854,6 @@ window.refreshCoreDataFromCloud = async function() {
         console.warn('Revision metadata unavailable; using verified full refresh:', revisionReadError);
     }
     if (cloudRevisions) {
-            const cloudRevisions = await readCoreRevisions();
             const cachedRevisions = JSON.parse(localStorage.getItem('haven_core_sync_revisions') || '{}');
             const hasCoreCache = Array.isArray(window.students) &&
                 Array.isArray(window.__coreLedgerCache) &&
