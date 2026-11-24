@@ -63,7 +63,7 @@ BEGIN
   FROM jsonb_array_elements(p_sale->'cartdetails') AS cart(line);
 
   v_discount := COALESCE(NULLIF(p_sale->>'discount', '')::numeric, 0);
-  IF v_cart_total <= 0 OR v_discount < 0 OR v_discount > v_cart_total
+  IF v_cart_total < 0 OR v_discount < 0 OR v_discount > v_cart_total
      OR ABS(round(v_cart_total - v_discount, 2) - round(COALESCE((p_sale->>'amount')::numeric, 0), 2)) > 0.005
      OR v_total_qty <> COALESCE((p_sale->>'qty')::bigint, -1)
      OR COALESCE((p_sale->>'total')::numeric, 0) < 0
