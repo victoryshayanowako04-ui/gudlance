@@ -129,8 +129,10 @@ test("login performs a targeted account lookup instead of downloading every staf
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const login = app.slice(start, end);
-  assert.match(login, /query\.ilike\(column, cleanUser\)/);
-  assert.match(login, /query\.filter\(column, 'ilike', cleanUser\)/);
+  assert.match(login, /const operator = caseInsensitive \? 'ilike' : 'eq'/);
+  assert.match(login, /query\[operator\]\(column, filterValue\)/);
+  assert.match(login, /query\.filter\(column, operator, filterValue\)/);
+  assert.match(login, /loginColumns = \[/);
   assert.match(login, /data->>username/);
   assert.doesNotMatch(login, /count:\s*['"]exact['"]/);
   assert.match(login, /window\.loginCloudUsers = null/);
