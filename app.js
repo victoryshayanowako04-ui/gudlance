@@ -9026,6 +9026,8 @@ window.processShopSale = async function() {
     confirmationMessage += "Do you want to proceed and finalize this sale?";
     const proceed = window.confirm(confirmationMessage);
     if (!proceed) return;
+    if (window.__shopSaleInProgress) return alert("A shop sale is already being processed. Please wait.");
+    window.__shopSaleInProgress = true;
 
     const receiptNum = 'RCPT-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 12)).toUpperCase());
     const saleDate = new Date().toISOString().split('T')[0];
@@ -9051,7 +9053,7 @@ window.processShopSale = async function() {
     }
 
     const saleRecord = {
-        id: "SALE-" + Date.now().toString(),
+        id: "SALE-" + (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2))),
         student_id: studentId || "WALK-IN",  
         type: "Shop Sale",                   
         date: saleDate,
@@ -9309,6 +9311,8 @@ window.processShopSale = async function() {
             .map(item => `${item.name}: ${item.qty} left`)
             .join("\\n");
 
+        window.__shopSaleInProgress = false;
+
         setTimeout(() => {
             if (missedWhatsapp && !isWalkIn) {
                 alert(`✅ Sale Logged Successfully!\\nReceipt: ${receiptNum}\\n\\nRemaining stock:\\n${remainingStockText}\\n\\n⚠️ Could not send WhatsApp: No phone number saved for ${student.name}.`);
@@ -9319,6 +9323,7 @@ window.processShopSale = async function() {
 
     } catch (error) {
         console.error("Shop Sale Error:", error);
+        window.__shopSaleInProgress = false;
         alert("⚠️ Shop sale could not be confirmed. Do not retry with a new receipt until you check the transaction history. Error: " + error.message);
     }
 };
