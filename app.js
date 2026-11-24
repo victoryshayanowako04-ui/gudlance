@@ -9202,6 +9202,12 @@ window.processShopSale = async function() {
         );
 
         if (saleError) {
+            // A structured database error confirms the RPC transaction rolled back.
+            // Release the EcoCash claim only in that known-failure case.
+            if (referenceClaimed && ecoRef && saleError.code &&
+                typeof window.releasePaymentReference === "function") {
+                await window.releasePaymentReference(ecoRef);
+            }
             throw new Error(`Sale was not committed: ${saleError.message}`);
         }
         if (!saleResult || saleResult.receipt_no !== receiptNum) {
