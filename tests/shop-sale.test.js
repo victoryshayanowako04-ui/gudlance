@@ -159,3 +159,22 @@ test("core sync revision metadata tracks inserts, updates and deletes", () => {
   assert.match(coreSyncMigration, /for select\s+to anon, authenticated\s+using \(true\)/i);
   assert.match(coreSyncMigration, /security definer/i);
 });
+
+const loginIndexMigration = fs.readFileSync(
+  path.join(root, "supabase/migrations/20261124221000_user_login_indexes.sql"),
+  "utf8"
+);
+
+test("login lookup fields have indexes for exact-match queries", () => {
+  for (const field of [
+    "username",
+    "name",
+    "data->>'username'",
+    "data->>'user'",
+    "data->>'name'"
+  ]) {
+    assert.ok(loginIndexMigration.includes(field), "missing login index for " + field);
+  }
+  assert.match(app, /query\[operator\]\(column, filterValue\)/);
+  assert.match(app, /Check each indexed field with exact match first/);
+});
