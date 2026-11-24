@@ -70,6 +70,16 @@ const getLedgerDesc = (l) => l.description || l.desc || l.notes || l.item || l.c
 const getReceiptNo = (l) => l.receipt_no || l.receiptNo || l.id || 'N/A';
 const getAmount = (l) => parseFloat(l.amount || l.amt || 0);
 
+window.__financialDataVerified = false;
+window.ensureFreshFinancialData = function() {
+    if (window.__financialDataVerified === true && navigator.onLine &&
+        (window.supabaseClient || window.supabase)) {
+        return true;
+    }
+    alert("Financial actions are paused until the latest student balances and payment records are verified. Reconnect and use Sync, then try again.");
+    return false;
+};
+
 window.claimPaymentReference = async function(reference, studentId, source) {
     if (!window.supabaseClient) {
         throw new Error('Supabase is not ready to verify this payment reference.');
@@ -118,6 +128,7 @@ window.addEventListener('online', () => {
 });
 
 window.addEventListener('offline', () => {
+    window.__financialDataVerified = false;
     const banner = document.getElementById('offlineBanner');
     if (banner) banner.style.display = 'block';
     console.warn("🔴 Network lost. Working offline. Cloud saves paused.");
@@ -696,6 +707,7 @@ const getStudentTransportFare = student => {
 };
 
 window.generateFees = async function() {
+    if (!window.ensureFreshFinancialData()) return;
     if (!window.requireLevel3BillingAccess()) return;
 
     const targetTerm = window.getCurrentTerm(); 
@@ -3517,6 +3529,7 @@ window.saveEditedStudent = async function() {
 };
 
 window.voidLedgerCharge = async function(studentId, chargeId, button) {
+    if (!window.ensureFreshFinancialData()) return;
     if (window.__ledgerVoidInProgress) return;
 
     // 1. Admin Security Check (Level 3 only — Level 2 must not void/reverse transactions)
@@ -3962,6 +3975,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 // UPDATED MAIN FUNCTION
 window.processEventPaymentOnce = async function() {
+    if (!window.ensureFreshFinancialData()) return;
     const db = window.supabase || window.supabaseClient;
     if (!navigator.onLine || !db) {
         alert("⚠️ An active internet connection is required to record this event payment. Please reconnect and try again. No receipt has been issued.");
@@ -4767,6 +4781,7 @@ window.printClassicalReceipt = function(student, eventName, amountPaid, receiptN
 //-------Instant Charge Payment
 // NEW FUNCTION: Adds an instant charge to the ledger so the payment algorithm can pick it up.
 window.addInstantCharge = async function(mode = 'waterfall') {
+    if (!window.ensureFreshFinancialData()) return;
     const studentIdEl = document.getElementById('payId');
     if (!studentIdEl || !studentIdEl.value) return alert("⚠️ Please select a student first.");
 
@@ -5029,6 +5044,7 @@ window.addInstantCharge = async function(mode = 'waterfall') {
 // ==========================================
 
 window.processPayment = async function() {
+    if (!window.ensureFreshFinancialData()) return;
     if (!window.appDataReady) return alert('Payment is blocked until student, ledger, payment, and billing data are verified.');
 
     const studentIdEl = document.getElementById('payId'); 
@@ -11046,6 +11062,7 @@ window.renderVoidedTable = function() {
 // BULLETPROOF VOID & REVERSAL PROCESSOR
 // ==========================================
 window.processVoid = async function(receiptNo, studentId, uiAmount, type) {
+    if (!window.ensureFreshFinancialData()) return;
     if (window.__voidInProgress || window.__voidPromptInProgress) {
         return alert("A receipt void is already in progress. Please wait for it to finish.");
     }
@@ -11735,6 +11752,7 @@ window.loginAsParent = async function() {
 };
 
 window.processPaynowPayment = async function() {
+    if (!window.ensureFreshFinancialData()) return;
     if (!navigator.onLine) return alert("⚠️ You are offline. Online payments require an active internet connection.");
     if (!window.currentParentStudent || window.currentParentBalance <= 0) {
         return alert("No outstanding balance to pay.");
@@ -11906,6 +11924,7 @@ window.refreshCoreDataFromCloud = async function() {
         foodProgram: student.foodProgram, stationeryPack: student.stationeryPack,
         textbooks: student.textbooks, enrollmentStatus: student.enrollmentStatus
     }))));
+    window.__financialDataVerified = true;
     window.appDataReady = true;
 };
 
@@ -14386,6 +14405,7 @@ const studentId = "STU-" + Math.floor(1000 + Math.random() * 9000);
 // ==========================================
 
 window.verifyEcoCashPayment = async function() {
+    if (!window.ensureFreshFinancialData()) return;
     // 1. Security Check
     const role = window.currentUser?.role || "";
     if (!(role.includes('Level 2') || role.includes('Level 3') || role === 'Admin' || role === 'Chief Admin')) {
@@ -15536,6 +15556,7 @@ window.initializeApp = async function() {
     const initializationStartedAt = performance.now();
     console.log("🚀 Haven Cloud Sync: Starting Full System Initialization...");
     window.appDataReady = false;
+    window.__financialDataVerified = false;
     window.startupLoadProgress = null;
     window.__hasCachedCore = false;
     if (typeof window.setAppDataInteractivity === 'function') window.setAppDataInteractivity(false);
@@ -15807,6 +15828,7 @@ window.initializeApp = async function() {
                 enrollmentStatus: record.status || record.enrollment_status || 'active'
             }));
         window.payments = paymentData;
+        window.__financialDataVerified = true;
         try {
             const existingCoreTimes = JSON.parse(localStorage.getItem('haven_core_sync_times') || '{}');
             const now = new Date().toISOString();
@@ -25334,6 +25356,7 @@ window.updateTeacherDropdowns = function() {
     });
 };
 window.voidTransaction = async function(receiptNo, studentId) {
+    if (!window.ensureFreshFinancialData()) return;
     // 1. Admin Verification
     const role = window.currentUser?.role || "";
     if (!role.includes('Level 3')) return alert("Access Denied: Only Chief Admins can void receipts.");
@@ -30746,6 +30769,7 @@ window.getPrePosStudentSelection = function() {
 };
 
 window.processPrePayment = async function() {
+    if (!window.ensureFreshFinancialData()) return;
     const student = window.getPrePosStudentSelection();
     const studentId = student ? String(student.id) : '';
     let amount = Number(document.getElementById('prePosAmount').value);
