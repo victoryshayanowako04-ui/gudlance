@@ -129,17 +129,12 @@
       currency: 'USD',
       drawerId: 'main'
     }, extra || {});
-    const response = await fetch('/api/vault-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      cache: 'no-store',
-      body: JSON.stringify(payload)
-    });
-    let data = {};
-    try { data = await response.json(); } catch (_) {}
-    if (!response.ok) throw new Error(data.error || 'Vault session request failed.');
-    return data.session || null;
+    if (!window.supabaseClient?.functions?.invoke) {
+      throw new Error('Supabase Vault session function is unavailable.');
+    }
+    const { data, error } = await window.supabaseClient.functions.invoke('vault-session', { body: payload });
+    if (error) throw new Error(error.message || 'Vault session request failed.');
+    return data?.session || null;
   }
 
   function setText(id, value) {
