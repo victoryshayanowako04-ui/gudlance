@@ -29,7 +29,7 @@ test('the audited Vault modules load after the existing application script', () 
   const html = read('index.html');
   const appIndex = html.indexOf('app.js?v=46');
   const coreIndex = html.indexOf('js/vault-financial-core.js?v=3');
-  const engineIndex = html.indexOf('js/vault-financial-engine.js?v=11');
+  const engineIndex = html.indexOf('js/vault-financial-engine.js?v=12');
   assert.ok(appIndex >= 0 && coreIndex > appIndex && engineIndex > coreIndex);
 });
 
@@ -91,7 +91,39 @@ test('the follow-up session migration adds verification state without rewriting 
 
 test('service worker caches the new Vault modules under a new cache version', () => {
   const worker = read('service-worker.js');
-  assert.match(worker, /haven-school-v15/);
+  assert.match(worker, /haven-school-v16/);
   assert.match(worker, /vault-financial-core\.js/);
   assert.match(worker, /vault-financial-engine\.js/);
+});
+
+
+test('the existing billed, debt, discount and waiver summary still refreshes', () => {
+  const engine = read('js/vault-financial-engine.js');
+  assert.match(engine, /await originalCalculate\.apply\(this, arguments\)/);
+  assert.match(engine, /return refreshFinancialVault\(\{ silent: true \}\)/);
+});
+
+test('class and student filter typing is debounced and clearly scoped', () => {
+  const engine = read('js/vault-financial-engine.js');
+  const html = read('index.html');
+  assert.match(engine, /function scheduleVaultStatsRefresh\(\)/);
+  assert.match(engine, /setTimeout\(\(\) => \{/);
+  assert.match(html, /oninput="scheduleVaultStatsRefresh\(\)"/);
+  assert.doesNotMatch(html, /onkeyup="calculateVaultStats\(\)"/);
+  assert.match(engine, /Class and student filters continue to apply to the existing student summary below/);
+});
+
+test('closed sessions warn when new or changed activity appears after closing', () => {
+  const engine = read('js/vault-financial-engine.js');
+  assert.match(engine, /const closingSnapshot = session\.closing_snapshot/);
+  assert.match(engine, /const activityChanged = closed/);
+  assert.match(engine, /Closed · activity changed/);
+  assert.match(engine, /New or changed financial activity was detected after closing/);
+});
+
+test('the browser submits only the physical count when closing a day', () => {
+  const engine = read('js/vault-financial-engine.js');
+  assert.match(engine, /sessionRequest\('close', \{ actualClosing: actual \}\)/);
+  assert.doesNotMatch(engine, /expectedClosing:\s*expected/);
+  assert.doesNotMatch(engine, /snapshot:\s*\{/);
 });
