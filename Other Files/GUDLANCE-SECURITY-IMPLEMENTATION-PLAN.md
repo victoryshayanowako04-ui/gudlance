@@ -48,6 +48,15 @@ The application currently:
 - Creates users with legacy pass and password values in the user data object.
 - Uses direct browser-side Supabase queries throughout the working modules.
 
+The parent portal has a separate authentication problem:
+
+- Parent login checks the student ID and phone number in browser JavaScript using window.students or localStorage data.
+- The phone check accepts either the full stored phone number or only its last four digits.
+- Parent attendance loads all attendance rows for the previous year from the attendance table and filters them in the browser, rather than requesting only the authenticated student's rows.
+- The attendance table has RLS disabled and an unconditional PUBLIC all-operation policy.
+
+The parent portal therefore needs its own server-verified, rate-limited, student-scoped session. It must not receive the full student directory or all attendance records.
+
 The current source also contains a hard-coded developer login bypass and a hard-coded developer override in the client-side factory-reset flow. These values are treated as compromised and are deliberately not reproduced here. The factory-reset path performs direct client-side deletes across multiple tables and must not remain protected only by browser-side prompts or role checks.
 
 ### Existing user records
@@ -63,6 +72,7 @@ A read-only aggregate check found:
 | Rows with an email address | 1 |
 | Rows in app_users | 0 |
 | Supabase Auth users | 0 |
+| Distinct login identifiers using the current fallback logic | 19 |
 | Level 1 / Level 2 / Level 3 roles | 13 / 2 / 4 |
 
 All 7 non-empty password_hash values exactly match the corresponding legacy data.pass and data.password values. None matched the checked bcrypt, Argon2 or SHA-256 hex formats. The password_hash column name is misleading: these are legacy plaintext credentials, not secure password hashes.
@@ -100,6 +110,8 @@ A server-side username authentication bridge will:
 6. Put the approved application role in protected app metadata or a server-controlled role table. Never use user-editable metadata for authorization.
 
 After the cutover, the existing Supabase client should use the authenticated session so existing query code can be migrated in controlled groups rather than replaced all at once.
+
+Parent/guardian access must use a separate server-verified session carrying a server-controlled student scope. Parent queries must be constrained in the database to that linked student; filtering a school-wide attendance result in browser JavaScript is not acceptable.
 
 Legacy password values must be removed from public user JSON as each account is securely migrated. The browser must never receive password hashes or legacy password fields.
 
