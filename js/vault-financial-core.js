@@ -355,13 +355,14 @@
       const account = classifyMethod(methodLabel);
       const hasUsdPaid = sale.usdpaid !== null && sale.usdpaid !== undefined;
       const totalCents = Math.max(0, cents(sale.total ?? sale.amount));
+      const posZigCents = Math.abs(cents(sale.zigpaid));
       const creditApplied = Math.max(0, cents(sale.credit_applied_amount));
       const creditBacked = sale.is_credit_backed === true || String(sale.is_credit_backed).toLowerCase() === 'true';
       const actualReceived = account === 'credit'
         ? 0
         : (hasUsdPaid
           ? Math.max(0, cents(sale.usdpaid))
-          : Math.max(0, totalCents - Math.max(creditApplied, creditBacked ? totalCents : 0)));
+          : (posZigCents > 0 ? 0 : Math.max(0, totalCents - Math.max(creditApplied, creditBacked ? totalCents : 0))));
       if (account === 'credit' && hasUsdPaid && cents(sale.usdpaid) > 0) {
         addException('POS_CREDIT_METHOD_WITH_CASH', date, reference, 'A POS row is marked as credit but also records USD tender. Confirm the actual payment channel.', cents(sale.usdpaid));
         return;
@@ -369,6 +370,19 @@
       if (creditApplied > totalCents && !hasUsdPaid) {
         addException('POS_CREDIT_EXCEEDS_TOTAL', date, reference, 'Credit applied exceeds the recorded POS total.', creditApplied - totalCents);
         return;
+      }
+      if (posZigCents > 0) {
+        result.totals.zigTenderCents += posZigCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          hasUsdPaid
+            ? 'POS records ZiG tender separately from its USD tender. The USD amount is counted accurately, but ZiG needs its own daily opening and closing count.'
+            : 'POS records ZiG tender but has no separate USD-paid amount. The USD-equivalent total is not treated as physical USD cash.',
+          posZigCents, 'ZiG');
+        if (!hasUsdPaid) {
+          addException('POS_USD_COMPONENT_UNKNOWN', date, reference,
+            'The POS total is not a reliable USD cash amount when ZiG tender exists and usdpaid is missing.',
+            totalCents, 'USD');
+        }
       }
       if (actualReceived <= 0) return;
       if (account === 'unclassified') addException('UNKNOWN_POS_METHOD', date, reference, 'Walk-in POS payment method is missing or cannot be classified.', actualReceived);
