@@ -127,7 +127,7 @@
       currency: 'USD',
       drawerId: 'main'
     }, extra || {});
-    const response = await fetch('/.netlify/functions/vault-session', {
+    const response = await fetch('/api/vault-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
