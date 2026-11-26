@@ -365,15 +365,15 @@
           unclassifiedInCents: state.result.totals.unclassifiedInCents,
           unclassifiedOutCents: state.result.totals.unclassifiedOutCents,
           netOnlineCents: state.result.totals.netOnlineCents,
-          movementRefs: state.result.movements.slice(0, 200).map(item => ({
+          movementRefs: state.result.movements.slice(0, 100).map(item => ({
             source: item.source, sourceId: item.sourceId, reference: item.reference,
             account: item.account, kind: item.kind, amountCents: item.amountCents
           })),
-          movementRefsTruncated: state.result.movements.length > 200,
-          exceptionRefs: state.result.exceptions.slice(0, 200).map(item => ({
+          movementRefsTruncated: state.result.movements.length > 100,
+          exceptionRefs: state.result.exceptions.slice(0, 100).map(item => ({
             code: item.code, date: item.date, reference: item.ref, amountCents: item.amountCents
           })),
-          exceptionRefsTruncated: state.result.exceptions.length > 200
+          exceptionRefsTruncated: state.result.exceptions.length > 100
         }
       });
       if (!vaultIsOpen() || !state.password) return;
