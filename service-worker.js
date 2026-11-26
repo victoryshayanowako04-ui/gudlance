@@ -1,4 +1,4 @@
-const CACHE_NAME = 'haven-school-v5';
+const CACHE_NAME = 'haven-school-v6';
 const APP_SHELL = [
   './',
   './index.html',
@@ -17,7 +17,10 @@ const APP_SHELL = [
   './js/settings.js',
   './js/icons.js',
   './js/vault-financial-core.js',
-  './js/vault-financial-engine.js'
+  './js/vault-financial-engine.js',
+  './app.js?v=46',
+  './js/vault-financial-core.js?v=1',
+  './js/vault-financial-engine.js?v=2'
 ];
 
 self.addEventListener('install', (event) => {
