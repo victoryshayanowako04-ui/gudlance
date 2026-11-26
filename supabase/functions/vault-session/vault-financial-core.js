@@ -74,9 +74,11 @@
     endDate: endDate || null,
     movements: [],
     exceptions: [],
+    nonCashAdjustments: [],
     totals: {
       collectionsCents: 0,
       expensesCents: 0,
+      nonCashAdjustmentsCents: 0,
       payrollCents: 0,
       cashInCents: 0,
       cashOutCents: 0,
@@ -420,6 +422,21 @@
       }
       const currency = String(expense.currency || data.currency || 'USD').toUpperCase();
       const methodLabel = expense.payment_method || data.payment_method || expense.method || data.method || '';
+      const isNonCashDiscount = String(methodLabel).trim().toLowerCase() === 'discount allocation' ||
+        String(reference || '').toUpperCase().startsWith('EXP-DISC-') ||
+        String(description).trim().toLowerCase().startsWith('system discount issued to ');
+      if (isNonCashDiscount) {
+        result.totals.nonCashAdjustmentsCents += amountCents;
+        result.nonCashAdjustments.push({
+          source: 'expenses',
+          sourceId: String(reference || ''),
+          date,
+          reference: String(reference || 'No reference'),
+          description: String(description),
+          amountCents
+        });
+        return;
+      }
       const account = classifyMethod(methodLabel);
       if (currency === 'ZIG' || currency === 'ZWG') {
         result.totals.zigExpenseCents += amountCents;
