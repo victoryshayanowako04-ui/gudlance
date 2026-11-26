@@ -326,3 +326,28 @@ test('ZiG payment fallback remains unclassified for USD cash without a historica
   assert.equal(result.totals.zigTenderCents, 100000);
   assert.ok(result.exceptions.some(item => item.code === 'ZIG_USD_SPLIT_REQUIRES_RATE'));
 });
+
+
+test('system discount allocations remain visible but never reduce cash or inflate expenses', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-09-04', endDate: '2026-09-04',
+    expenses: [{
+      id: 'EXP-DISC-1',
+      date: '2026-09-04',
+      amount: 25,
+      status: 'ACTIVE',
+      data: {
+        date: '2026-09-04',
+        desc: 'System Discount Issued to Student One',
+        amount: 25,
+        payment_method: 'Discount Allocation'
+      }
+    }]
+  });
+  assert.equal(result.totals.expensesCents, 0);
+  assert.equal(result.totals.cashOutCents, 0);
+  assert.equal(result.totals.nonCashAdjustmentsCents, 2500);
+  assert.equal(result.nonCashAdjustments.length, 1);
+  assert.equal(result.movements.length, 0);
+  assert.equal(result.exceptions.length, 0);
+});
