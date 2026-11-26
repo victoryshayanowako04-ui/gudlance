@@ -36,8 +36,8 @@
     if (!method || ['n/a', 'not specified', 'not recorded', 'unknown'].includes(method)) return 'unclassified';
     if (method.includes('advance credit') || method === 'credit' || method.includes('account credit')) return 'credit';
     if (/[+,/]/.test(method) && !method.includes('cash usd')) return 'unclassified';
-    if (method.includes('cash')) return 'cash';
     if (method.includes('ecocash')) return 'ecocash';
+    if (method.includes('cash')) return 'cash';
     if (method.includes('innbucks')) return 'innbucks';
     if (method.includes('zipit')) return 'zipit';
     if (method.includes('onemoney') || method.includes('one money')) return 'onemoney';
