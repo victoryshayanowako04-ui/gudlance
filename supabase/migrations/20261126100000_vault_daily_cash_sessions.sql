@@ -37,10 +37,11 @@ ALTER TABLE public.vault_daily_sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.vault_session_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vault_session_audit FORCE ROW LEVEL SECURITY;
 
-REVOKE ALL ON TABLE public.vault_daily_sessions FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.vault_session_audit FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.vault_daily_sessions FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.vault_session_audit FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.vault_daily_sessions TO service_role;
 GRANT SELECT, INSERT ON TABLE public.vault_session_audit TO service_role;
+REVOKE ALL ON SEQUENCE public.vault_session_audit_id_seq FROM PUBLIC, anon, authenticated, service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.vault_session_audit_id_seq TO service_role;
 
 CREATE OR REPLACE FUNCTION public.record_vault_session(
