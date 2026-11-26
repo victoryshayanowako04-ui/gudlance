@@ -121,18 +121,19 @@ async function verifyChiefAdmin(userId, password) {
 
 Deno.serve(async request => {
   const origin = request.headers.get('Origin') || '';
+  const respond = (status, payload) => json(status, payload, origin);
   if (request.method === 'OPTIONS') {
     if (!isAllowedOrigin(origin)) return new Response('Forbidden', { status: 403, headers: baseCorsHeaders });
     return new Response('ok', { headers: corsHeadersFor(origin) });
   }
-  if (origin && !isAllowedOrigin(origin)) return json(403, { error: 'This origin is not allowed to manage the Gudlance Vault.' });
-  if (request.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
+  if (origin && !isAllowedOrigin(origin)) return respond(403, { error: 'This origin is not allowed to manage the Gudlance Vault.' });
+  if (request.method !== 'POST') return respond(405, { error: 'Method Not Allowed' });
 
   try {
     const rawBody = await request.text();
-    if (rawBody.length > 120000) return json(413, { error: 'Vault request is too large.' });
+    if (rawBody.length > 120000) return respond(413, { error: 'Vault request is too large.' });
     const body = JSON.parse(rawBody || '{}');
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { error: 'Invalid Vault request.' });
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return respond(400, { error: 'Invalid Vault request.' });
     const action = String(body.action || '').toLowerCase();
     const userId = String(body.userId || '').trim();
     const password = String(body.password || '');
@@ -141,12 +142,12 @@ Deno.serve(async request => {
     const drawerId = String(body.drawerId || 'main').trim() || 'main';
 
     if (!userId || !password || userId.length > 128 || password.length > 256) {
-      return json(400, { error: 'Vault authentication is required.' });
+      return respond(400, { error: 'Vault authentication is required.' });
     }
-    if (!isDate(businessDate)) return json(400, { error: 'Select a valid business date.' });
-    if (!['USD', 'ZiG'].includes(currency)) return json(400, { error: 'Unsupported Vault currency.' });
-    if (!['read', 'open', 'close'].includes(action)) return json(400, { error: 'Unsupported Vault action.' });
-    if (drawerId.length > 80) return json(400, { error: 'Invalid cash drawer.' });
+    if (!isDate(businessDate)) return respond(400, { error: 'Select a valid business date.' });
+    if (!['USD', 'ZiG'].includes(currency)) return respond(400, { error: 'Unsupported Vault currency.' });
+    if (!['read', 'open', 'close'].includes(action)) return respond(400, { error: 'Unsupported Vault action.' });
+    if (drawerId.length > 80) return respond(400, { error: 'Invalid cash drawer.' });
 
     const user = await verifyChiefAdmin(userId, password);
 
@@ -156,13 +157,13 @@ Deno.serve(async request => {
           '&currency=eq.' + encodeURIComponent(currency) +
           '&drawer_id=eq.' + encodeURIComponent(drawerId) + '&limit=1'
       );
-      return json(200, { session: Array.isArray(rows) ? rows[0] || null : null });
+      return respond(200, { session: Array.isArray(rows) ? rows[0] || null : null });
     }
 
     if (action === 'open') {
       const openingFloat = money(body.openingFloat);
       if (openingFloat === null || openingFloat < 0) {
-        return json(400, { error: 'Enter a valid opening float of zero or more.' });
+        return respond(400, { error: 'Enter a valid opening float of zero or more.' });
       }
       const session = await supabaseRequest('rpc/record_vault_session', {
         method: 'POST',
@@ -178,17 +179,17 @@ Deno.serve(async request => {
           p_actor_id: String(user.id)
         })
       });
-      return json(200, { session });
+      return respond(200, { session });
     }
 
     const expectedClosing = money(body.expectedClosing);
     const actualClosing = money(body.actualClosing);
     if (expectedClosing === null || actualClosing === null || actualClosing < 0) {
-      return json(400, { error: 'Enter a valid actual closing cash count.' });
+      return respond(400, { error: 'Enter a valid actual closing cash count.' });
     }
     const snapshot = body.snapshot && typeof body.snapshot === 'object' ? body.snapshot : {};
     if (JSON.stringify(snapshot).length > 100000) {
-      return json(400, { error: 'The reconciliation snapshot is too large.' });
+      return respond(400, { error: 'The reconciliation snapshot is too large.' });
     }
     const session = await supabaseRequest('rpc/record_vault_session', {
       method: 'POST',
@@ -204,11 +205,11 @@ Deno.serve(async request => {
         p_actor_id: String(user.id)
       })
     });
-    return json(200, { session });
+    return respond(200, { session });
   } catch (error) {
     const status = Number(error.status) || 500;
     if (status >= 500) console.error('Vault session service error:', error.message || error);
-    return json(status, {
+    return respond(status, {
       error: status >= 500 ? 'Vault session service is temporarily unavailable.' : error.message
     });
   }
