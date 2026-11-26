@@ -2042,45 +2042,13 @@ window.loadSchoolAssets = function() {
 // ==========================================
 // 1. ADMIN FINANCIAL VAULT CALCULATOR 
 // ==========================================
-window.unlockAdminFinance = async function() {
-    const role = window.currentUser?.role || "";
-    if (!role.includes('Level 3')) return alert("Access Denied: Only Chief Admins can view the Vault.");
-
-    const password = prompt("🔒 Enter Vault Password to Proceed:");
-    if (!password) return;
-
-    try {
-        const { data: userRecord, error } = await window.supabaseClient
-            .from('users')
-            .select('password_hash, data')
-            .eq('id', window.currentUser.id)
-            .maybeSingle();
-
-        if (error) throw error;
-
-        let userData = userRecord?.data || {};
-        if (typeof userData === 'string') userData = JSON.parse(userData);
-
-        const storedPassword = userRecord?.password_hash || userData.pass || userData.password;
-        if (!storedPassword || password !== storedPassword) {
-            return alert("❌ Incorrect Vault Password.");
-        }
-        if (typeof window.setVaultSessionPassword === 'function') window.setVaultSessionPassword(password);
-    } catch (error) {
-        console.error("Vault unlock verification failed:", error);
-        return alert("❌ Could not verify the Vault Password. Please check your connection.");
+window.unlockAdminFinance = function() {
+    // The secure unlock handler is loaded after the financial engine.
+    // Do not read or compare password fields in the browser.
+    if (typeof window.openSecureVault !== 'function') {
+        return alert("The secure Vault service is still loading. Please wait and try again.");
     }
-
-    document.getElementById('unlockBtn').style.display = 'none';
-    document.getElementById('adminFinanceStats').style.display = 'block';
-    
-    // Default to the current day so the vault's initial view is truly "today".
-    const now = new Date();
-    const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
-    document.getElementById('vaultStartDate').value = today;
-    document.getElementById('vaultEndDate').value = today;
-    
-    if (typeof calculateVaultStats === 'function') calculateVaultStats();
+    return window.openSecureVault();
 };
 
 window.lockAdminFinance = function() {
