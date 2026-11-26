@@ -23584,12 +23584,6 @@ window.calculateVaultStats = async function() {
     const rateInput = document.getElementById('zigRate');
     const rate = rateInput ? (parseFloat(rateInput.value) || 1) : 1;
 
-    const startDateInput = document.getElementById('vaultStartDate');
-    if (startDateInput && !startDateInput.value) {
-        const now = new Date();
-        startDateInput.value = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
-    }
-
     const startDate = document.getElementById('vaultStartDate')?.value;
     const endDate = document.getElementById('vaultEndDate')?.value;
     const classFilter = (document.getElementById('vaultClassFilter')?.value || "").toLowerCase().trim();
@@ -23662,13 +23656,13 @@ window.calculateVaultStats = async function() {
                 const amount = parseFloat(exp.amount || expData.amount || exp.total || 0) || 0;
                 if (amount <= 0) return;
                 const currency = String(exp.currency || expData.currency || 'USD').toUpperCase();
-                const methodLabel = String(exp.payment_method || expData.payment_method || exp.method || expData.method || 'Cash').trim();
+                const methodLabel = String(exp.payment_method || expData.payment_method || exp.method || expData.method || 'Not recorded').trim();
                 const method = methodLabel.toLowerCase();
                 const isOnline = method.includes('online') || method.includes('transfer') || method.includes('swipe') || method.includes('bank') || method.includes('ecocash') || method.includes('innbucks') || method.includes('zipit');
                 if (method.includes('discount')) return; 
                 
                 const desc = String(exp.description || expData.description || '').toLowerCase();
-                if (String(exp.id).includes('EXP-INV') || desc.includes('stock purchase')) return; 
+                 
 
                 const breakObj = {
                     date: expenseDate,
@@ -23680,7 +23674,7 @@ window.calculateVaultStats = async function() {
 
                 if (currency === 'ZIG') { vaultZigExpenses += amount; window.vaultBreakdowns.expensesZig.push(breakObj); }
                 else if (isOnline) { vaultOnlineExpenses += amount; window.vaultBreakdowns.expensesOnline.push(breakObj); }
-                else if (!isTransferType) { vaultCashExpenses += amount; window.vaultBreakdowns.expensesCash.push(breakObj); }  
+                else if (method.includes('cash')) { vaultCashExpenses += amount; window.vaultBreakdowns.expensesCash.push(breakObj); }  
             });
         } catch (expenseError) {}
     }
@@ -23694,7 +23688,7 @@ window.calculateVaultStats = async function() {
             if (posError) throw posError;
             
             (posRows || []).forEach(sale => {
-                if (sale.status === 'VOID' || sale.status === 'VOIDED' || sale.reconciled === true) return;
+                if (sale.status === 'VOID' || sale.status === 'VOIDED') return;
                 const saleDate = String(sale.date || '').trim().split(' ')[0].split('T')[0];
                 if (startDate && saleDate < startDate) return;
                 if (endDate && saleDate > endDate) return;
@@ -23702,7 +23696,7 @@ window.calculateVaultStats = async function() {
                 const methodLabel = String(sale.paymentmethod || sale.paymentMethod || sale.payment_method || sale.method || 'Cash').trim();
                 const method = methodLabel.toLowerCase();
                 let saleValue = parseFloat(sale.amount || 0);
-                let cashReceived = parseFloat(sale.total || sale.usdpaid || sale.amount || 0); 
+                let cashReceived = parseFloat(sale.usdpaid ?? sale.total ?? sale.amount ?? 0); 
                 
                 const isOnline = method.includes('online') || method.includes('ecocash') || method.includes('innbucks') || method.includes('transfer') || method.includes('zipit') || method.includes('swipe');
                 const isWalkIn = !sale.student_id || sale.student_id === 'WALK-IN';
@@ -23886,7 +23880,7 @@ window.calculateVaultStats = async function() {
                             revenue.overpay[methodKey] += allocatedUsd;
                             if(isOnline) window.vaultBreakdowns.overpayOnline.push(breakObj); else window.vaultBreakdowns.overpayCash.push(breakObj);
                             window.vaultBreakdowns.overpayment.push(breakObj); 
-                            if (ratio === 1) exceptionsLog.push({ date: getIsoDate(l.date), category: 'Overpayment Banked', entity: student.name, desc: cleanD, amount: allocatedUsd });
+                            exceptionsLog.push({ date: getIsoDate(l.date), category: 'Overpayment Banked', entity: student.name, desc: cleanD, amount: allocatedUsd });
                         } else {
                             revenue.tuition[methodKey] += allocatedUsd;
                             if(isOnline) window.vaultBreakdowns.tuitionOnline.push(breakObj); else window.vaultBreakdowns.tuitionCash.push(breakObj);
