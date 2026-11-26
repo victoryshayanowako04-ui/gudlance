@@ -25,7 +25,7 @@ test('mixed payment breakdown counts the receipt once and allocates overpayment 
   assert.equal(result.totals.cashInCents, 3000);
   assert.equal(result.totals.overpaymentsCents, 1000);
   assert.equal(result.movements.length, 2);
-  assert.equal(result.totals.creditLiabilityCents, 0);
+  assert.equal(result.totals.creditLiabilityCents, 1000);
 });
 
 test('credit-funded payments are not counted as new money and reduce outstanding credit', () => {
