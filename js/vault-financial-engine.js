@@ -316,7 +316,7 @@
       $('vcpSessionSummary').style.display = 'block';
       $('vcpSessionSummary').innerHTML = '<div class="vcp-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0">' +
         '<div class="vcp-metric"><small>Opening float</small><strong>' + formatMoney(core.cents(session.opening_float)) + '</strong></div>' +
-        '<div class="vcp-metric"><small>' + (savedExceptionCount ? 'Expected closing · provisional' : 'Expected closing') + '</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
+        '<div class="vcp-metric"><small>' + (!closed && savedExceptionCount ? 'Expected closing · provisional' : 'Expected closing') + '</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
         '<div class="vcp-metric"><small>' + (closed ? 'Actual closing' : 'Net movement') + '</small><strong>' +
         (closed ? formatMoney(core.cents(session.actual_closing)) : formatMoney(result.totals.netCashCents)) + '</strong></div></div>' +
         (closed ? '<div class="' + (Number(session.variance) === 0 && session.is_verified === true ? 'vcp-positive' : 'vcp-danger') +
@@ -392,11 +392,12 @@
       });
       if (!vaultIsOpen() || !state.password) return;
       renderSession(state.result);
+      const savedExceptionCount = Number(state.session.exception_count ?? state.result.exceptions.length);
       if (state.session.is_verified === true) {
         alert('Vault closed, balanced and fully reconciled.');
-      } else if (Number(state.session.exception_count || state.result.exceptions.length) > 0) {
-        alert('The day was closed, but ' + Number(state.session.exception_count || state.result.exceptions.length) +
-          ' financial exceptions remain unresolved. It is not marked fully verified.');
+      } else if (savedExceptionCount > 0) {
+        alert('The day was closed, but ' + savedExceptionCount +
+          ' financial exceptions were unresolved at closing. It is not marked fully verified.');
       } else {
         alert('Vault closed but is not fully reconciled. Investigate the closing variance or verification status.');
       }
