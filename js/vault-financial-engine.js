@@ -232,15 +232,16 @@
     keys.forEach(key => { breakdowns[key] = []; });
     result.movements.forEach(item => {
       const row = { date: item.date, desc: item.description, ref: item.reference, method: item.method, amount: item.amountCents / 100 };
-      if (item.category === 'tuition') breakdowns[item.account === 'cash' ? 'tuitionCash' : 'tuitionOnline'].push(row);
-      else if (item.category === 'shop') breakdowns[item.account === 'cash' ? 'shopCash' : 'shopOnline'].push(row);
-      else if (item.category === 'event') breakdowns[item.account === 'cash' ? 'eventCash' : 'eventOnline'].push(row);
+      const isClassifiedOnline = item.account && item.account !== 'cash' && item.account !== 'unclassified';
+      if (item.category === 'tuition' && (item.account === 'cash' || isClassifiedOnline)) breakdowns[item.account === 'cash' ? 'tuitionCash' : 'tuitionOnline'].push(row);
+      else if (item.category === 'shop' && (item.account === 'cash' || isClassifiedOnline)) breakdowns[item.account === 'cash' ? 'shopCash' : 'shopOnline'].push(row);
+      else if (item.category === 'event' && (item.account === 'cash' || isClassifiedOnline)) breakdowns[item.account === 'cash' ? 'eventCash' : 'eventOnline'].push(row);
       else if (item.category === 'overpayment') {
-        breakdowns[item.account === 'cash' ? 'overpayCash' : 'overpayOnline'].push(row);
+        if (item.account === 'cash' || isClassifiedOnline) breakdowns[item.account === 'cash' ? 'overpayCash' : 'overpayOnline'].push(row);
         breakdowns.overpayment.push(row);
-      } else if (item.kind === 'payroll') {
+      } else if (item.kind === 'payroll' && (item.account === 'cash' || isClassifiedOnline)) {
         breakdowns[item.account === 'cash' ? 'payrollCash' : 'payrollOnline'].push(row);
-      } else if (item.kind === 'expense') {
+      } else if (item.kind === 'expense' && (item.account === 'cash' || isClassifiedOnline)) {
         breakdowns[item.account === 'cash' ? 'expensesCash' : 'expensesOnline'].push(row);
       }
     });
