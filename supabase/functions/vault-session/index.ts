@@ -90,6 +90,44 @@ async function supabaseRequest(path, options) {
   return body ? JSON.parse(body) : null;
 }
 
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function consumeVaultAuthThrottle(userId, request) {
+  const forwarded = String(request.headers.get('x-forwarded-for') || '').split(',')[0].trim();
+  const clientIp = request.headers.get('cf-connecting-ip') || forwarded || 'unknown';
+  const keys = [
+    await sha256Hex('ip:' + clientIp),
+    await sha256Hex('user:' + userId + ':' + clientIp)
+  ];
+  let retryAfterSeconds = 0;
+  for (const keyHash of keys) {
+    const response = await supabaseRequest('rpc/consume_vault_auth_attempt', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_key_hash: keyHash,
+        p_max_attempts: 6,
+        p_window_seconds: 300,
+        p_block_seconds: 900
+      })
+    });
+    const bucket = Array.isArray(response) ? response[0] : response;
+    if (!bucket || bucket.allowed !== true) {
+      retryAfterSeconds = Math.max(retryAfterSeconds, Number(bucket?.retry_after_seconds) || 900);
+    }
+  }
+  return { allowed: retryAfterSeconds === 0, retryAfterSeconds, keys };
+}
+
+async function clearVaultAuthThrottle(keys) {
+  await Promise.all((keys || []).map(keyHash => supabaseRequest('rpc/clear_vault_auth_attempt', {
+    method: 'POST',
+    body: JSON.stringify({ p_key_hash: keyHash })
+  })));
+}
+
 async function verifyChiefAdmin(userId, password) {
   const users = await supabaseRequest(
     'users?select=id,role,data,password_hash&id=eq.' + encodeURIComponent(userId) + '&limit=1'
@@ -238,7 +276,25 @@ Deno.serve(async request => {
     }
     if (drawerId.length > 80) return respond(400, { error: 'Invalid cash drawer.' });
 
-    const user = await verifyChiefAdmin(userId, password);
+    const throttle = await consumeVaultAuthThrottle(userId, request);
+    if (!throttle.allowed) {
+      return respond(429, {
+        error: 'Too many unsuccessful Vault access attempts. Try again after the temporary security lock expires.',
+        retryAfterSeconds: throttle.retryAfterSeconds
+      });
+    }
+
+    let user;
+    try {
+      user = await verifyChiefAdmin(userId, password);
+    } catch (error) {
+      if ((Number(error.status) || 500) >= 500) {
+        try { await clearVaultAuthThrottle(throttle.keys); } catch (_) {}
+      }
+      throw error;
+    }
+    try { await clearVaultAuthThrottle(throttle.keys); }
+    catch (error) { console.error('Vault auth throttle reset failed:', error.message || error); }
 
     if (action === 'calculate') {
       const result = await calculateVaultReport(startDate, endDate);
