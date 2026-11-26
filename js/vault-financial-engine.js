@@ -307,7 +307,7 @@
       $('vcpSessionSummary').style.display = 'block';
       $('vcpSessionSummary').innerHTML = '<div class="vcp-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0">' +
         '<div class="vcp-metric"><small>Opening float</small><strong>' + formatMoney(core.cents(session.opening_float)) + '</strong></div>' +
-        '<div class="vcp-metric"><small>Expected closing</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
+        '<div class="vcp-metric"><small>' + (result.exceptions.length ? 'Expected closing · provisional' : 'Expected closing') + '</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
         '<div class="vcp-metric"><small>' + (closed ? 'Actual closing' : 'Net movement') + '</small><strong>' +
         (closed ? formatMoney(core.cents(session.actual_closing)) : formatMoney(result.totals.netCashCents)) + '</strong></div></div>' +
         (closed ? '<div class="' + (Number(session.variance) === 0 ? 'vcp-positive' : 'vcp-danger') +
