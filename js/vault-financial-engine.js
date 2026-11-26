@@ -7,7 +7,7 @@
     return;
   }
 
-  const state = { password: '', result: null, session: null, loading: false };
+  const state = { password: '', result: null, session: null, loading: false, refreshAgain: false };
   const $ = id => document.getElementById(id);
   const formatNumber = cents => (Number(cents || 0) / 100).toLocaleString('en-US', {
     minimumFractionDigits: 2, maximumFractionDigits: 2
@@ -267,8 +267,10 @@
     setText('vcpSessionDate', 'Business date: ' + range.startDate + ' · USD main cash drawer');
     try {
       state.session = await sessionRequest('read');
+      if (!vaultIsOpen() || !state.password) return;
       renderSession(result);
     } catch (error) {
+      if (!vaultIsOpen() || !state.password) return;
       state.session = null;
       setText('vcpSessionStatus', 'Session service unavailable');
       if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status warn';
@@ -323,6 +325,7 @@
     if (button) { button.disabled = true; button.textContent = 'Saving…'; }
     try {
       state.session = await sessionRequest('open', { openingFloat: amount });
+      if (!vaultIsOpen() || !state.password) return;
       renderSession(state.result);
       alert('Opening float recorded for ' + dateRange().startDate + '.');
     } catch (error) {
@@ -359,6 +362,7 @@
           movementCount: state.result.movements.length
         }
       });
+      if (!vaultIsOpen() || !state.password) return;
       renderSession(state.result);
       if (state.result.exceptions.length) {
         alert('The day was closed, but ' + state.result.exceptions.length +
@@ -377,7 +381,8 @@
   }
 
   async function refreshFinancialVault(options) {
-    if (!vaultIsOpen() || state.loading) return;
+    if (!vaultIsOpen()) return;
+    if (state.loading) { state.refreshAgain = true; return; }
     if (!window.supabaseClient) {
       setText('vaultControlMessage', 'Supabase is not connected. No figures have been verified.');
       return;
@@ -392,6 +397,7 @@
         fetchAll('payroll_history')
       ]);
       const range = dateRange();
+      if (!vaultIsOpen()) return null;
       const result = core.calculateVaultFinancials({
         startDate: range.startDate,
         endDate: range.endDate,
@@ -410,6 +416,10 @@
       return null;
     } finally {
       state.loading = false;
+      if (state.refreshAgain) {
+        state.refreshAgain = false;
+        if (vaultIsOpen()) refreshFinancialVault({ silent: true });
+      }
     }
   }
 
