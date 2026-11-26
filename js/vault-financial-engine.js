@@ -78,6 +78,7 @@
       ' <div class="vcp-metric"><small>Net cash movement</small><strong id="vcpNetCash">—</strong></div>',
       ' <div class="vcp-metric"><small>Period overpayments</small><strong id="vcpOverpayments">—</strong></div>',
       ' <div class="vcp-metric"><small>Student credit liability</small><strong id="vcpCredit">—</strong></div>',
+      ' <div class="vcp-metric"><small>Non-cash discount allocations</small><strong id="vcpNonCashAdjustments">—</strong></div>',
       ' <div class="vcp-metric"><small>ZiG tender (separate)</small><strong id="vcpZigTender">0.00</strong></div>',
       ' <div class="vcp-metric"><small>ZiG expenses (separate)</small><strong id="vcpZigExpenses">0.00</strong></div>',
       '</div>',
@@ -155,6 +156,7 @@
     setText('vcpPayroll', formatMoney(totals.payrollCents));
     setText('vcpNetCash', formatMoney(totals.netCashCents));
     setText('vcpCredit', formatMoney(totals.creditLiabilityCents));
+    setText('vcpNonCashAdjustments', formatMoney(totals.nonCashAdjustmentsCents));
     setText('vcpOverpayments', formatMoney(totals.overpaymentsCents));
     const netCash = $('vcpNetCash');
     if (netCash) netCash.className = totals.netCashCents < 0 ? 'vcp-danger' : 'vcp-positive';
@@ -447,7 +449,7 @@
     state.sessionReadToken += 1;
     if (filterRefreshTimer) { window.clearTimeout(filterRefreshTimer); filterRefreshTimer = null; }
     window.vaultBreakdowns = {};
-    ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit', 'vcpOverpayments',
+    ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit', 'vcpNonCashAdjustments', 'vcpOverpayments',
       'vcpMovementCount', 'vcpExceptionCount', 'vaultControlMessage'].forEach(id => setText(id, '—'));
     setText('vaultControlStatus', 'Vault locked');
     setText('vcpSessionStatus', 'Not opened');
