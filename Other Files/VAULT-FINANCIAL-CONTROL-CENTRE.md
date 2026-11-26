@@ -56,9 +56,9 @@ The function reads SUPABASE_URL and prefers SUPABASE_SECRET_KEYS.default, with S
 ## Deployment sequence
 
 1. Run CI and review the pull request.
-2. Confirm the Supabase Edge Function vault-session is deployed with verify_jwt disabled because it performs its own Chief Admin password check.
-3. Apply supabase/migrations/20261126100000_vault_daily_cash_sessions.sql to the intended Supabase project.
-4. Deploy the updated static app and Supabase Edge Function.
+2. Apply supabase/migrations/20261126100000_vault_daily_cash_sessions.sql to the intended Supabase project.
+3. Deploy the Supabase Edge Function vault-session with verify_jwt disabled because it performs its own Chief Admin password check.
+4. Deploy the updated static app.
 5. Test with a non-production date/session first, then verify the actual cash drawer against the recorded opening float and movement list.
 
 The migration has not been applied to the live Supabase project by this code change. Existing financial data is not backfilled or rewritten.
