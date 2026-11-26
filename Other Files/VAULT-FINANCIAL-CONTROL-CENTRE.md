@@ -49,19 +49,19 @@ Closing stores the expected amount, actual physical count, variance, calculation
 
 The daily session tables have RLS enabled, no anon or authenticated table grants, and service-role-only access. The browser never receives the Supabase service-role key.
 
-The Netlify function rechecks the user's Chief Admin role and Vault password server-side before reading or writing a daily session. It requires the same server environment variables already used by the existing Chief Admin verification function:
+The Cloudflare Pages Function rechecks the user's Chief Admin role and Vault password server-side before reading or writing a daily session. Configure these values in Cloudflare Pages under Settings → Variables and Secrets for both Preview and Production:
 
 - SUPABASE_URL
-- SUPABASE_SERVICE_ROLE_KEY
+- SUPABASE_SERVICE_ROLE_KEY (encrypted secret)
 
 The endpoint uses the existing custom users table and current Vault password convention. It does not create Supabase Auth users or change the login system.
 
 ## Deployment sequence
 
 1. Run CI and review the pull request.
-2. Confirm Netlify Functions are deployed for this repository and both required environment variables are configured.
+2. Confirm the Cloudflare Pages Function route /api/vault-session is deployed and both required environment variables are configured for Preview and Production.
 3. Apply supabase/migrations/20261126100000_vault_daily_cash_sessions.sql to the intended Supabase project.
-4. Deploy the updated static app and netlify/functions/vault-session.js.
+4. Deploy the updated static app and functions/api/vault-session.js.
 5. Test with a non-production date/session first, then verify the actual cash drawer against the recorded opening float and movement list.
 
 The migration has not been applied to the live Supabase project by this code change. Existing financial data is not backfilled or rewritten.
