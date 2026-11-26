@@ -29,7 +29,7 @@ jobs:
           node --check app.js
           for file in main.js server.js service-worker.js parent-portal.js stationery.js netlify/functions/*.js tests/*.js; do
             node --check "$file"
-          node --input-type=module --check < functions/api/vault-session.js
           done
+          node --input-type=module --check < functions/api/vault-session.js
       - name: Run regression tests
         run: npm test
