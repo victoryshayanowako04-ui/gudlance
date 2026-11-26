@@ -134,3 +134,16 @@ test('system discount allocations have a separate non-cash Vault total', () => {
   assert.match(engine, /vcpNonCashAdjustments/);
   assert.match(engine, /totals\.nonCashAdjustmentsCents/);
 });
+
+
+test('Vault authentication throttle is private and service-role only', () => {
+  const migration = read('supabase/migrations/20261126210000_vault_auth_rate_limit.sql');
+  const edge = read('supabase/functions/vault-session/index.ts');
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.vault_auth_throttle/);
+  assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
+  assert.match(migration, /FORCE ROW LEVEL SECURITY/);
+  assert.match(migration, /REVOKE ALL ON TABLE public\.vault_auth_throttle FROM PUBLIC, anon, authenticated/);
+  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.consume_vault_auth_attempt/);
+  assert.match(edge, /consumeVaultAuthThrottle\(userId, request\)/);
+  assert.match(edge, /clearVaultAuthThrottle\(throttle\.keys\)/);
+});
