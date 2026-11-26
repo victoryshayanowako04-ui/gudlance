@@ -7,7 +7,7 @@
     return;
   }
 
-  const state = { password: '', result: null, session: null, loading: false, refreshAgain: false };
+  const state = { password: '', result: null, session: null, loading: false, refreshAgain: false, sessionReadToken: 0 };
   const $ = id => document.getElementById(id);
   const formatNumber = cents => (Number(cents || 0) / 100).toLocaleString('en-US', {
     minimumFractionDigits: 2, maximumFractionDigits: 2
@@ -34,7 +34,7 @@
     panel.style.cssText = 'margin:0 0 16px;border:1px solid #dbe4ee;border-top:4px solid #142b4a;border-radius:12px;padding:16px;background:#fff;box-shadow:0 8px 24px rgba(15,35,60,.06);';
     panel.innerHTML = [
       '<style>',
-      '#vaultControlPanel *{box-sizing:border-box}#vaultControlPanel .vcp-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:14px 0}',
+      '#vaultControlPanel *{box-sizing:border-box}#vaultControlPanel .vcp-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}',
       '#vaultControlPanel .vcp-metric{background:#f7f9fc;border:1px solid #e7edf4;border-radius:10px;padding:12px;min-width:0}',
       '#vaultControlPanel .vcp-metric small{display:block;color:#64748b;font-size:10px;text-transform:uppercase;font-weight:800;letter-spacing:.06em;margin-bottom:7px}',
       '#vaultControlPanel .vcp-metric strong{font-size:clamp(17px,2vw,23px);color:#142b4a;overflow-wrap:anywhere}',
@@ -66,6 +66,7 @@
       ' <div class="vcp-metric"><small>Recorded expenses</small><strong id="vcpExpenses">—</strong></div>',
       ' <div class="vcp-metric"><small>Paid payroll</small><strong id="vcpPayroll">—</strong></div>',
       ' <div class="vcp-metric"><small>Net cash movement</small><strong id="vcpNetCash">—</strong></div>',
+      ' <div class="vcp-metric"><small>Period overpayments</small><strong id="vcpOverpayments">—</strong></div>',
       ' <div class="vcp-metric"><small>Student credit liability</small><strong id="vcpCredit">—</strong></div>',
       '</div>',
       '<div class="vcp-section">',
@@ -102,11 +103,18 @@
   }
 
   async function fetchAll(table) {
+    const columns = {
+      student_ledger: 'id,student_id,date,type,description,amount,method,status,receipt_no,breakdown,is_credit_backed,credit_used,payment_notes,reconciled',
+      transactions: 'id,student_id,date,type,amount,description,receipt_no,status,category,total,reconciled,paymentmethod,item,usdpaid,zigpaid,discount,is_credit_backed,credit_applied_amount,payment_details,notes',
+      expenses: 'id,created_at,description,amount,date,data,payment_method,category,signed_by,status',
+      payroll_history: 'id,teacher_id,amount,payment_date,payroll_period,payment_method,status,reference_number,expenses,notes',
+      payments: 'id,receipt_no,student_id,amount,date,method,status,category,notes'
+    };
     const pageSize = 1000;
     const rows = [];
     let offset = 0;
     while (true) {
-      const response = await window.supabaseClient.from(table).select('*')
+      const response = await window.supabaseClient.from(table).select(columns[table] || '*')
         .order('id', { ascending: true }).range(offset, offset + pageSize - 1);
       if (response.error) throw new Error(table + ': ' + response.error.message);
       const batch = response.data || [];
@@ -158,6 +166,7 @@
     setText('vcpPayroll', formatMoney(totals.payrollCents));
     setText('vcpNetCash', formatMoney(totals.netCashCents));
     setText('vcpCredit', formatMoney(totals.creditLiabilityCents));
+    setText('vcpOverpayments', formatMoney(totals.overpaymentsCents));
     const netCash = $('vcpNetCash');
     if (netCash) netCash.className = totals.netCashCents < 0 ? 'vcp-danger' : 'vcp-positive';
 
@@ -255,6 +264,7 @@
   async function updateDailySession(result) {
     const range = dateRange();
     const daily = !!range.startDate && range.startDate === range.endDate;
+    const readToken = ++state.sessionReadToken;
     if (!$('vcpDailySession')) return;
     $('vcpDailySession').style.display = daily ? 'block' : 'none';
     if (!daily) {
@@ -263,11 +273,12 @@
     }
     setText('vcpSessionDate', 'Business date: ' + range.startDate + ' · USD main cash drawer');
     try {
-      state.session = await sessionRequest('read');
-      if (!vaultIsOpen() || !state.password) return;
+      const session = await sessionRequest('read');
+      if (readToken !== state.sessionReadToken || !vaultIsOpen() || !state.password) return;
+      state.session = session;
       renderSession(result);
     } catch (error) {
-      if (!vaultIsOpen() || !state.password) return;
+      if (readToken !== state.sessionReadToken || !vaultIsOpen() || !state.password) return;
       state.session = null;
       setText('vcpSessionStatus', 'Session service unavailable');
       if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status warn';
@@ -310,8 +321,9 @@
           (result.exceptions.length ? ' · Source exceptions remain' : (Number(session.variance) === 0 ? ' · Balanced' : ' · Difference requires investigation')) + '</div>' :
           '<div class="vcp-muted" style="margin-top:8px">Opening float is locked. Record the actual drawer count when the day is finished.</div>');
     }
-    setText('vcpSessionStatus', closed ? (result.exceptions.length ? 'Closed · review required' : 'Day closed') : 'Opening float recorded');
-    if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status ' + (closed && !result.exceptions.length ? 'good' : 'warn');
+    const verified = closed && session.is_verified === true;
+    setText('vcpSessionStatus', closed ? (verified ? 'Closed & reconciled' : 'Closed · review required') : 'Opening float recorded');
+    if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status ' + (verified ? 'good' : 'warn');
     if ($('vcpClosingArea')) $('vcpClosingArea').style.display = closed ? 'none' : 'block';
   }
 
@@ -357,6 +369,8 @@
           creditLiabilityCents: state.result.totals.creditLiabilityCents,
           exceptionCount: state.result.exceptions.length,
           movementCount: state.result.movements.length,
+          movementRefs: state.result.movements.map(item => [item.source, item.sourceId, item.reference, item.kind, item.account, item.amountCents].join('|')),
+          exceptions: state.result.exceptions.map(item => ({ code: item.code, date: item.date, ref: item.ref, amountCents: item.amountCents })),
           unclassifiedInCents: state.result.totals.unclassifiedInCents,
           unclassifiedOutCents: state.result.totals.unclassifiedOutCents,
           netOnlineCents: state.result.totals.netOnlineCents,
@@ -403,7 +417,8 @@
         fetchAll('student_ledger'),
         fetchAll('transactions'),
         fetchAll('expenses'),
-        fetchAll('payroll_history')
+        fetchAll('payroll_history'),
+        fetchAll('payments')
       ]);
       const range = dateRange();
       if (!vaultIsOpen()) return null;
@@ -413,7 +428,8 @@
         ledger: datasets[0],
         transactions: datasets[1],
         expenses: datasets[2],
-        payroll: datasets[3]
+        payroll: datasets[3],
+        payments: datasets[4]
       });
       renderResult(result);
       return result;
@@ -437,7 +453,8 @@
     state.session = null;
     state.result = null;
     state.refreshAgain = false;
-    ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit',
+    state.sessionReadToken += 1;
+    ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit', 'vcpOverpayments',
       'vcpMovementCount', 'vcpExceptionCount', 'vaultControlMessage'].forEach(id => setText(id, '—'));
     setText('vaultControlStatus', 'Vault locked');
     setText('vcpSessionStatus', 'Not opened');
