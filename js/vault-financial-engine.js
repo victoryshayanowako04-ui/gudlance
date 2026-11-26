@@ -427,6 +427,7 @@
     state.password = '';
     state.session = null;
     state.result = null;
+    state.refreshAgain = false;
     ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit',
       'vcpMovementCount', 'vcpExceptionCount', 'vaultControlMessage'].forEach(id => setText(id, '—'));
     setText('vaultControlStatus', 'Vault locked');
