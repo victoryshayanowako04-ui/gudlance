@@ -1,0 +1,123 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { calculateVaultFinancials, cents, classifyMethod } = require('../js/vault-financial-core');
+
+test('money is rounded to cents and payment methods are classified conservatively', () => {
+  assert.equal(cents(1.005), 101);
+  assert.equal(classifyMethod('Cash USD'), 'cash');
+  assert.equal(classifyMethod('EcoCash (CD)'), 'ecocash');
+  assert.equal(classifyMethod('Bank Transfer'), 'bank');
+  assert.equal(classifyMethod('Advance Credit'), 'credit');
+  assert.equal(classifyMethod(''), 'unclassified');
+  assert.equal(classifyMethod('Cash + EcoCash'), 'unclassified');
+});
+
+test('mixed payment breakdown counts the receipt once and allocates overpayment correctly', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [{
+      id: 'L1', student_id: 'STU-1', date: '2026-11-24', type: 'payment',
+      amount: 30, method: 'Cash', status: 'ACTIVE', receipt_no: 'R1',
+      breakdown: [{ amt: 20, desc: 'Tuition fee' }, { amt: 10, desc: 'Account Overpayment' }]
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 3000);
+  assert.equal(result.totals.cashInCents, 3000);
+  assert.equal(result.totals.overpaymentsCents, 1000);
+  assert.equal(result.movements.length, 2);
+  assert.equal(result.totals.creditLiabilityCents, 0);
+});
+
+test('credit-funded payments are not counted as new money and reduce outstanding credit', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-25',
+    ledger: [
+      { id: 'O1', student_id: 'STU-1', date: '2026-11-24', type: 'overpayment', amount: 50, method: 'Cash', status: 'ACTIVE', receipt_no: 'R1' },
+      { id: 'C1', student_id: 'STU-1', date: '2026-11-25', type: 'payment', amount: 20, method: 'Advance Credit', is_credit_backed: true, status: 'ACTIVE', receipt_no: 'R2' }
+    ]
+  });
+  assert.equal(result.totals.collectionsCents, 5000);
+  assert.equal(result.totals.cashInCents, 5000);
+  assert.equal(result.totals.creditLiabilityCents, 3000);
+});
+
+test('cash stock purchases and reconciled walk-in POS sales remain in cash movement', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [],
+    transactions: [{
+      id: 'POS1', student_id: 'WALK-IN', date: '2026-11-24', status: 'ACTIVE',
+      reconciled: true, receipt_no: 'POS-R1', paymentmethod: 'Cash USD',
+      total: 16, usdpaid: 16, amount: 16
+    }],
+    expenses: [{
+      id: 'EXP-INV-1', status: 'ACTIVE', data: {
+        date: '2026-11-24', amount: 320, payment_method: 'Cash',
+        description: 'Stock Purchase: uniforms'
+      }
+    }]
+  });
+  assert.equal(result.totals.cashInCents, 1600);
+  assert.equal(result.totals.cashOutCents, 32000);
+  assert.equal(result.totals.netCashCents, -30400);
+  assert.equal(result.movements.length, 2);
+});
+
+test('a walk-in POS receipt already represented in the ledger is not counted twice', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [{
+      id: 'L1', student_id: 'WALK-IN', date: '2026-11-24', type: 'payment',
+      amount: 16, method: 'Cash', status: 'ACTIVE', receipt_no: 'SAME'
+    }],
+    transactions: [{
+      id: 'POS1', student_id: 'WALK-IN', date: '2026-11-24', status: 'ACTIVE',
+      receipt_no: 'SAME', paymentmethod: 'Cash USD', total: 16, usdpaid: 16
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 1600);
+  assert.equal(result.movements.length, 1);
+});
+
+test('date boundaries are inclusive and liability is an as-of-end-date snapshot', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-25', endDate: '2026-11-25',
+    ledger: [
+      { id: 'O1', student_id: 'STU-1', date: '2026-11-24', type: 'overpayment', amount: 40, method: 'Cash', status: 'ACTIVE', receipt_no: 'R1' },
+      { id: 'P1', student_id: 'STU-1', date: '2026-11-25', type: 'payment', amount: 10, method: 'Advance Credit', is_credit_backed: true, status: 'ACTIVE', receipt_no: 'R2' },
+      { id: 'O2', student_id: 'STU-1', date: '2026-11-26', type: 'overpayment', amount: 90, method: 'Cash', status: 'ACTIVE', receipt_no: 'R3' }
+    ]
+  });
+  assert.equal(result.totals.collectionsCents, 0);
+  assert.equal(result.totals.creditLiabilityCents, 3000);
+});
+
+test('unknown expense payment method is not silently treated as cash', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    expenses: [{ id: 'E1', date: '2026-11-24', amount: 25, status: 'ACTIVE', description: 'Office supplies' }]
+  });
+  assert.equal(result.totals.cashOutCents, 0);
+  assert.equal(result.totals.unclassifiedOutCents, 2500);
+  assert.ok(result.exceptions.some(exception => exception.code === 'UNKNOWN_EXPENSE_METHOD'));
+});
+
+test('payroll is deducted from the actual payment channel and not counted as cash by default', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    payroll: [{ id: 'PAY1', payment_date: '2026-11-24', amount: 100, payment_method: 'Bank Transfer', status: 'Paid' }]
+  });
+  assert.equal(result.totals.payrollCents, 10000);
+  assert.equal(result.totals.cashOutCents, 0);
+  assert.equal(result.totals.onlineOutCents, 10000);
+  assert.equal(result.totals.netOnlineCents, -10000);
+});
+
+test('unpaid payroll is not deducted from any account', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    payroll: [{ id: 'PAY1', payment_date: '2026-11-24', amount: 100, payment_method: 'Cash', status: 'Pending' }]
+  });
+  assert.equal(result.totals.cashOutCents, 0);
+  assert.ok(result.exceptions.some(exception => exception.code === 'PAYROLL_NOT_CONFIRMED_PAID'));
+});
