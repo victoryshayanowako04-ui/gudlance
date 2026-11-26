@@ -27,7 +27,11 @@ The three forced-RLS tables are the Vault session, Vault audit and Vault authent
 
 A schema scan found no school_id or tenant_id column in the public application tables. The current counts are 4 rows in schools, 2 rows in school_data, 0 rows in school_settings and 397 rows in students. The parent_student_links table exists but currently has 0 rows.
 
-This does not prove whether the four schools rows are historical/licensing records or active tenants. The current application data model has no clear common tenant key for student, attendance and financial records. The RLS design must confirm whether this deployment is intended for one school or multiple schools sharing the same Supabase project before policies are written. If it is multi-school, a tenant key and a verified backfill plan are required; do not assume the current records can be safely separated.
+The owner has confirmed that this Gudlance deployment serves **one school only**. It is not a multi-school SaaS tenant deployment, and the four rows in schools must not be interpreted as four active customer tenants without separate evidence. Do not introduce a multi-school tenant migration or add school_id columns solely to support multiple schools.
+
+The shop also serves **walk-in customers who are not registered students**. Walk-in customers are retail customers, not additional schools and not student records. Shop sales must support both student-linked purchases and ordinary walk-in sales. A walk-in sale must not require creating a student, must not create or alter a student ledger balance, and must not gain access to student data. Where an actual student is the purchaser, the sale and any student-credit allocation must retain the correct student link and existing accounting rules.
+
+The single-school RLS design should therefore scope school operational data to the school's authenticated staff roles, apply student-specific scope to parent/guardian access, and separately authorize POS/shop operations for staff. Walk-in sale records remain shop transactions and must not be confused with school tenancy or parent/student ownership.
 
 The existing application tables remain broadly exposed. Sensitive tables include users, payments, student_ledger, expenses, transactions and payroll_history.
 
