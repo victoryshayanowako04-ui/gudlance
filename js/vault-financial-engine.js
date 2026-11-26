@@ -208,6 +208,8 @@
 
     // Keep the established Vault summary cards synchronized with the audited calculation.
     setText('statCollectedUsd', (totals.collectionsCents / 100).toFixed(2));
+    const conversionRate = parseFloat($('zigRate')?.value) || 1;
+    setText('statCollectedZig', ((totals.collectionsCents / 100) * conversionRate).toFixed(2));
     setText('vaultCashExpenses', formatNumber(result.movements
       .filter(item => item.kind === 'expense' && item.account === 'cash')
       .reduce((sum, item) => sum + item.amountCents, 0)));
@@ -359,7 +361,19 @@
           overpaymentsCents: state.result.totals.overpaymentsCents,
           creditLiabilityCents: state.result.totals.creditLiabilityCents,
           exceptionCount: state.result.exceptions.length,
-          movementCount: state.result.movements.length
+          movementCount: state.result.movements.length,
+          unclassifiedInCents: state.result.totals.unclassifiedInCents,
+          unclassifiedOutCents: state.result.totals.unclassifiedOutCents,
+          netOnlineCents: state.result.totals.netOnlineCents,
+          movementRefs: state.result.movements.slice(0, 200).map(item => ({
+            source: item.source, sourceId: item.sourceId, reference: item.reference,
+            account: item.account, kind: item.kind, amountCents: item.amountCents
+          })),
+          movementRefsTruncated: state.result.movements.length > 200,
+          exceptionRefs: state.result.exceptions.slice(0, 200).map(item => ({
+            code: item.code, date: item.date, reference: item.ref, amountCents: item.amountCents
+          })),
+          exceptionRefsTruncated: state.result.exceptions.length > 200
         }
       });
       if (!vaultIsOpen() || !state.password) return;
