@@ -26,9 +26,9 @@ The public Supabase URL and publishable key already used by the browser are not 
 
 The Vault Edge Function keeps the existing Gudlance Cloudflare Pages origins and accepts additional HTTPS origins only when explicitly configured.
 
-After Netlify creates the site, set the Supabase Edge Function secret:
+For this site, the exact production origin is `https://gudlance.netlify.app`. Set the Supabase Edge Function secret in the Supabase project dashboard (Edge Functions → Secrets):
 
-`GUDLANCE_VAULT_ALLOWED_ORIGINS=https://YOUR-EXACT-SITE-NAME.netlify.app`
+`GUDLANCE_VAULT_ALLOWED_ORIGINS=https://gudlance.netlify.app`
 
 Use the actual Netlify production origin, with no path and no wildcard. If a custom domain is used, include its exact HTTPS origin. Then deploy the updated `vault-session` Edge Function so the allowlist change takes effect.
 
