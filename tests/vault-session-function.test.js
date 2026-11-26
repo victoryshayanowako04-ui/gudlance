@@ -238,7 +238,8 @@ test('Vault prefers the scoped Supabase secret over the legacy service role key'
 
 test('date-range calculations scope source reads while retaining prior credit history', async () => {
   const { handler, calls } = createHandler({
-    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }]
+    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }],
+    sources: { student_ledger: [], transactions: [], expenses: [], payroll_history: [], payments: [] }
   });
   const response = await handler(post(JSON.stringify({
     action: 'calculate', userId: 'chief-1', password: 'correct-pass',
