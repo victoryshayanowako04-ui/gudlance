@@ -18,10 +18,10 @@ test('the Vault calculator includes stock purchases and keeps reconciled POS his
   assert.notEqual(start, -1, 'Vault calculator must exist');
   assert.notEqual(end, -1, 'Vault calculator boundary must exist');
   const vault = app.slice(start, end);
-  assert.doesNotMatch(vault, /String\\(exp\\.id\\)\\.includes\\(['"]EXP-INV['"]\\)/);
-  assert.doesNotMatch(vault, /sale\\.reconciled === true\\) return/);
-  assert.match(vault, /sale\\.usdpaid \\?\\? sale\\.total \\?\\? sale\\.amount/);
-  assert.match(vault, /expData\\.method \\|\\| 'Not recorded'/);
+  assert.doesNotMatch(vault, /String\(exp\.id\)\.includes\(['"]EXP-INV['"]\)/);
+  assert.doesNotMatch(vault, /sale\.reconciled === true\) return/);
+  assert.match(vault, /sale\.usdpaid \?\? sale\.total \?\? sale\.amount/);
+  assert.match(vault, /expData\.method \|\| 'Not recorded'/);
 });
 
 test('the audited Vault modules load after the existing application script', () => {
