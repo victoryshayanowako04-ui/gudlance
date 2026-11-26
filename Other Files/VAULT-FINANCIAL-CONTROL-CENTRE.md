@@ -29,6 +29,7 @@ Reconciled POS rows remain part of historical reports. Reconciliation is a statu
 - Explicit overpayment allocations are counted as actual collections and as student credit liability. `Covered by Advance Credit` is a credit application, not a new overpayment.
 - Credit-funded payments reduce student credit liability but do not create a new cash collection or inflate period overpayments. Mixed credit/cash receipts allocate only the actual cash portion to cash movements.
 - Stock purchases reduce the payment channel recorded on the expense, including purchases stored only in JSON.
+- System-generated `EXP-DISC-*` / `Discount Allocation` entries are non-cash student discounts. They remain visible in a separate non-cash adjustment total and are not counted as paid expenses or cash outflows.
 - Payroll reduces the account indicated by payment_method, not automatically physical cash.
 - Missing/unknown methods are reported as unclassified and are never assumed to be cash.
 - ZiG is kept separate from USD and is not added to USD cash.
@@ -92,6 +93,15 @@ The read-only source reconciliation establishes:
 - Reconstructed student-credit liability as at 24 November: $9,032.95 after deducting $179.00 of advance-credit settlements from $9,211.95 of active overpayment entries.
 
 The two walk-in shop receipts also present in the payments table are not added twice. Five other historical paid payment rows have no matching student-ledger record; they are included as fallback movements and explicitly flagged for review.
+
+## All-time source exceptions (26 November 2026)
+
+The full historical calculation identifies 30 unresolved source exceptions:
+- 5 paid receipts exist in the payments table without a matching student-ledger record. They are included once as flagged fallback collections.
+- 25 active expenses have no reliable payment method. Their amount is kept in Unclassified rather than being assumed to be cash or an online account.
+- 38 system-generated discount allocations total $786.50. These are non-cash adjustments, not expense payments, and are shown separately.
+
+The live database has not been rewritten to resolve these exceptions. Each requires review against the original receipt or expense evidence.
 
 ## ZiG handling and known limitation
 
