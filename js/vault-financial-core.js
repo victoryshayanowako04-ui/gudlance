@@ -60,6 +60,13 @@
     return (!startDate || date >= startDate) && (!endDate || date <= endDate);
   };
   const activeDate = (date, endDate) => !!date && (!endDate || date <= endDate);
+  const harareToday = () => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Harare', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return values.year + '-' + values.month + '-' + values.day;
+  };
   const createResult = (startDate, endDate) => ({
     startDate: startDate || null,
     endDate: endDate || null,
@@ -101,8 +108,9 @@
     const result = createResult(startDate, endDate);
     const ledgerRows = Array.isArray(source.ledger) ? source.ledger : [];
     const ledgerReceipts = new Set();
+    const ledgerReceiptStudentKeys = new Set();
     const seen = new Set();
-    const asOfDate = endDate || isoDate(source.today) || new Date().toISOString().slice(0, 10);
+    const asOfDate = endDate || isoDate(source.today) || harareToday();
 
     const addException = (code, date, ref, description, amountCents) => {
       result.exceptions.push({
@@ -157,6 +165,9 @@
       const amountCents = Math.abs(cents(row.amount));
       const reference = row.receipt_no || row.receiptNo || row.id;
       if (reference && ['payment', 'overpayment'].includes(type)) ledgerReceipts.add(String(reference).toUpperCase());
+      if (reference && ['payment', 'overpayment'].includes(type)) {
+        ledgerReceiptStudentKeys.add(String(reference).toUpperCase() + '|' + String(row.student_id || '').toUpperCase());
+      }
 
       if (date && activeDate(date, asOfDate)) {
         const liabilityBreakdown = Array.isArray(row.breakdown) && row.breakdown.length
@@ -232,6 +243,52 @@
       });
     });
 
+    // The payments table is a controlled fallback for paid receipts missing from the student ledger.
+    // It is never summed when the same receipt/student pair already exists in the ledger.
+    (Array.isArray(source.payments) ? source.payments : []).forEach(payment => {
+      if (!payment || !isPaidStatus(payment.status)) return;
+      const date = isoDate(payment.date);
+      const reference = payment.receipt_no || payment.id;
+      const studentId = String(payment.student_id || '').trim();
+      const receiptKey = String(reference || '').toUpperCase();
+      const studentKey = receiptKey + '|' + studentId.toUpperCase();
+      if ((receiptKey && studentId && ledgerReceiptStudentKeys.has(studentKey)) ||
+          (receiptKey && !studentId && ledgerReceipts.has(receiptKey))) return;
+
+      const amountCents = Math.abs(cents(payment.amount));
+      if (!withinPeriod(date, startDate, endDate)) {
+        if (!date && amountCents > 0) addException('MISSING_PAYMENT_DATE', '', reference, 'Paid receipt has no usable business date.', amountCents);
+        return;
+      }
+      if (amountCents <= 0) return;
+
+      const methodLabel = payment.method || '';
+      const account = classifyMethod(methodLabel);
+      const description = payment.notes || payment.category || 'Paid receipt missing from student ledger';
+      const categoryText = String(payment.category || payment.notes || '').toLowerCase();
+      const category = categoryText.includes('overpayment')
+        ? 'overpayment'
+        : categoryFor(categoryText, '');
+      if (account === 'credit') {
+        addException('PAYMENT_CREDIT_SOURCE', date, reference, 'A paid payment row is marked as student credit; confirm its actual tender before including it as cash received.', amountCents);
+        return;
+      }
+      if (account === 'unclassified') {
+        addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Fallback receipt payment method is missing or cannot be safely classified.', amountCents);
+      }
+      addException('PAYMENT_MISSING_LEDGER', date, reference, 'A paid receipt exists in payments but has no matching student ledger entry. It is included once as a fallback and needs review.', amountCents);
+      if (category === 'overpayment' && activeDate(date, asOfDate)) {
+        result.totals.creditLiabilityCents += amountCents;
+      }
+      addMovement({
+        source: 'payments', sourceId: String(payment.id || reference || ''),
+        date, reference: String(reference || 'No receipt'),
+        description: String(description), studentId,
+        method: String(methodLabel || 'Not recorded'),
+        account, category, kind: 'collection', direction: 'in', amountCents
+      });
+    });
+
     // POS records are only added for walk-in sales; student POS receipts already exist in the student ledger.
     (Array.isArray(source.transactions) ? source.transactions : []).forEach(sale => {
       if (!sale || !isValidStatus(sale.status)) return;
@@ -247,13 +304,22 @@
       if (reference && ledgerReceipts.has(String(reference).toUpperCase())) return;
       const methodLabel = sale.paymentmethod || sale.paymentMethod || sale.payment_method || sale.method || '';
       const account = classifyMethod(methodLabel);
-      const paid = sale.usdpaid !== null && sale.usdpaid !== undefined
-        ? Math.max(0, cents(sale.usdpaid))
-        : Math.max(0, cents(sale.total ?? sale.amount));
+      const hasUsdPaid = sale.usdpaid !== null && sale.usdpaid !== undefined;
+      const totalCents = Math.max(0, cents(sale.total ?? sale.amount));
       const creditApplied = Math.max(0, cents(sale.credit_applied_amount));
-      const actualReceived = Math.max(0, paid);
-      if (creditApplied > 0 || account === 'credit') {
-        addException('POS_CREDIT_COMPONENT', date, reference, 'POS credit components are not new money received.', creditApplied || actualReceived);
+      const creditBacked = sale.is_credit_backed === true || String(sale.is_credit_backed).toLowerCase() === 'true';
+      const actualReceived = account === 'credit'
+        ? 0
+        : (hasUsdPaid
+          ? Math.max(0, cents(sale.usdpaid))
+          : Math.max(0, totalCents - Math.max(creditApplied, creditBacked ? totalCents : 0)));
+      if (account === 'credit' && hasUsdPaid && cents(sale.usdpaid) > 0) {
+        addException('POS_CREDIT_METHOD_WITH_CASH', date, reference, 'A POS row is marked as credit but also records USD tender. Confirm the actual payment channel.', cents(sale.usdpaid));
+        return;
+      }
+      if (creditApplied > totalCents && !hasUsdPaid) {
+        addException('POS_CREDIT_EXCEEDS_TOTAL', date, reference, 'Credit applied exceeds the recorded POS total.', creditApplied - totalCents);
+        return;
       }
       if (actualReceived <= 0) return;
       if (account === 'unclassified') addException('UNKNOWN_POS_METHOD', date, reference, 'Walk-in POS payment method is missing or cannot be classified.', actualReceived);
