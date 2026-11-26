@@ -104,6 +104,14 @@ The Vault Edge Function uses database-backed rate limiting before checking a Chi
 - Only SHA-256 hashes are stored. Raw IP addresses and passwords are not written to the throttle table.
 - The throttle table is RLS-enabled and forced, with access granted only to the service role through the Edge Function.
 
+## Existing application access-control blocker
+
+The new Vault session, audit and authentication-throttle tables are RLS-enabled and forced, with no anon/authenticated grants. The Vault Edge Function is the only intended path to those session records.
+
+The existing financial source tables are a separate, pre-existing risk. Live grants and table metadata show RLS disabled and broad `anon` / `authenticated` privileges on `payments`, `student_ledger`, `expenses`, `transactions`, `payroll_history` and `users`. The browser uses the Supabase publishable key, so the Vault password check does not protect those direct REST endpoints.
+
+Do not apply a blanket RLS change to these existing tables: the current custom-login application relies on direct browser access, and an abrupt policy change would break working modules. A staged migration to server-side authentication and role-aware database policies is required before claiming the whole application is production-secure. The Vault UI change is therefore held out of `main` until that access-control plan is reviewed and tested.
+
 ## All-time source exceptions (26 November 2026)
 
 The full historical calculation identifies 30 unresolved source exceptions:
