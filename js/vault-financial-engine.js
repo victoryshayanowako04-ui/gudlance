@@ -24,6 +24,15 @@
     startDate: $('vaultStartDate')?.value || '',
     endDate: $('vaultEndDate')?.value || ''
   });
+  let filterRefreshTimer = null;
+
+  function scheduleVaultStatsRefresh() {
+    if (filterRefreshTimer) window.clearTimeout(filterRefreshTimer);
+    filterRefreshTimer = window.setTimeout(() => {
+      filterRefreshTimer = null;
+      if (typeof window.calculateVaultStats === 'function') window.calculateVaultStats();
+    }, 350);
+  }
 
   function injectPanel() {
     const host = $('adminFinanceStats');
@@ -60,6 +69,7 @@
       ' <div class="vcp-muted">Traceable movements, account separation and daily cash control</div></div>',
       ' <span id="vaultControlStatus" class="vcp-status">Waiting for data</span>',
       '</div>',
+      '<div class="vcp-muted" style="margin-top:8px">Control Centre figures cover the whole school for the selected dates. Class and student filters continue to apply to the existing student summary below.</div>',
       '<div id="vaultControlMessage" class="vcp-muted" style="margin-top:12px">Choose a date range above and refresh the Vault.</div>',
       '<div class="vcp-grid">',
       ' <div class="vcp-metric"><small>Total collections</small><strong id="vcpCollections">—</strong></div>',
@@ -303,6 +313,27 @@
     const savedExceptionCount = closed
       ? Number(session.exception_count ?? session.closing_snapshot?.exceptionCount ?? 0)
       : sessionExceptionsFor(result, sessionCurrency).length;
+    const closingSnapshot = session.closing_snapshot && typeof session.closing_snapshot === 'object'
+      ? session.closing_snapshot : {};
+    const currentSnapshot = {
+      movementCount: result.movements.length,
+      exceptionCount: sessionExceptionsFor(result, sessionCurrency).length,
+      collectionsCents: result.totals.collectionsCents,
+      cashInCents: result.totals.cashInCents,
+      cashOutCents: result.totals.cashOutCents,
+      netCashCents: result.totals.netCashCents,
+      expensesCents: result.totals.expensesCents,
+      payrollCents: result.totals.payrollCents,
+      overpaymentsCents: result.totals.overpaymentsCents,
+      creditLiabilityCents: result.totals.creditLiabilityCents,
+      unclassifiedInCents: result.totals.unclassifiedInCents,
+      unclassifiedOutCents: result.totals.unclassifiedOutCents,
+      netOnlineCents: result.totals.netOnlineCents
+    };
+    const comparableSnapshotKeys = Object.keys(currentSnapshot)
+      .filter(key => closingSnapshot[key] !== undefined && closingSnapshot[key] !== null);
+    const activityChanged = closed && comparableSnapshotKeys.length > 0 &&
+      comparableSnapshotKeys.some(key => Number(closingSnapshot[key]) !== Number(currentSnapshot[key]));
     if ($('vcpSessionSummary')) {
       $('vcpSessionSummary').style.display = 'block';
       $('vcpSessionSummary').innerHTML = '<div class="vcp-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0">' +
@@ -310,13 +341,15 @@
         '<div class="vcp-metric"><small>' + (!closed && savedExceptionCount ? 'Expected closing · provisional' : 'Expected closing') + '</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
         '<div class="vcp-metric"><small>' + (closed ? 'Actual closing' : 'Net movement') + '</small><strong>' +
         (closed ? formatMoney(core.cents(session.actual_closing)) : formatMoney(result.totals.netCashCents)) + '</strong></div></div>' +
-        (closed ? '<div class="' + (Number(session.variance) === 0 && session.is_verified === true ? 'vcp-positive' : 'vcp-danger') +
+        (closed ? '<div class="' + (activityChanged ? 'vcp-warn' : (Number(session.variance) === 0 && session.is_verified === true ? 'vcp-positive' : 'vcp-danger')) +
           '" style="font-weight:850;margin-top:10px">Closing variance: ' + formatMoney(core.cents(session.variance)) +
-          (savedExceptionCount ? ' · ' + savedExceptionCount + ' source exceptions at close' : (session.is_verified === true ? ' · ' + sessionCurrency + ' drawer balanced and verified' : ' · Closed but not fully verified')) + '</div>' :
+          (activityChanged
+            ? ' · New or changed financial activity was detected after closing. The saved close is unchanged and needs authorised review.'
+            : (savedExceptionCount ? ' · ' + savedExceptionCount + ' source exceptions at close' : (session.is_verified === true ? ' · ' + sessionCurrency + ' drawer balanced and verified' : ' · Closed but not fully verified'))) + '</div>' :
           '<div class="vcp-muted" style="margin-top:8px">Opening float is locked. Record the actual drawer count when the day is finished.</div>');
     }
-    const verified = closed && session.is_verified === true;
-    setText('vcpSessionStatus', closed ? (verified ? 'Closed & reconciled' : 'Closed · review required') : 'Opening float recorded');
+    const verified = closed && session.is_verified === true && !activityChanged;
+    setText('vcpSessionStatus', closed ? (activityChanged ? 'Closed · activity changed' : (verified ? 'Closed & reconciled' : 'Closed · review required')) : 'Opening float recorded');
     if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status ' + (verified ? 'good' : 'warn');
     if ($('vcpClosingArea')) $('vcpClosingArea').style.display = closed ? 'none' : 'block';
   }
@@ -347,42 +380,10 @@
     if (!rawActual) return alert('Enter the actual physical cash count. Enter 0 if the drawer is empty.');
     const actual = Number(rawActual);
     if (!Number.isFinite(actual) || actual < 0) return alert('Enter the actual cash count.');
-    const expected = Number(state.session.opening_float) + state.result.totals.netCashCents / 100;
-    const sessionCurrency = String(state.session.currency || 'USD');
-    const sessionExceptions = sessionExceptionsFor(state.result, sessionCurrency);
     if (button) { button.disabled = true; button.textContent = 'Reconciling…'; }
     try {
-      state.session = await sessionRequest('close', {
-        expectedClosing: expected,
-        actualClosing: actual,
-        snapshot: {
-          calculatedAt: new Date().toISOString(),
-          startDate: state.result.startDate,
-          endDate: state.result.endDate,
-          collectionsCents: state.result.totals.collectionsCents,
-          cashInCents: state.result.totals.cashInCents,
-          cashOutCents: state.result.totals.cashOutCents,
-          netCashCents: state.result.totals.netCashCents,
-          expensesCents: state.result.totals.expensesCents,
-          payrollCents: state.result.totals.payrollCents,
-          overpaymentsCents: state.result.totals.overpaymentsCents,
-          creditLiabilityCents: state.result.totals.creditLiabilityCents,
-          exceptionCount: sessionExceptions.length,
-          movementCount: state.result.movements.length,
-          unclassifiedInCents: state.result.totals.unclassifiedInCents,
-          unclassifiedOutCents: state.result.totals.unclassifiedOutCents,
-          netOnlineCents: state.result.totals.netOnlineCents,
-          movementRefs: state.result.movements.slice(0, 500).map(item => ({
-            source: item.source, sourceId: item.sourceId, reference: item.reference,
-            account: item.account, kind: item.kind, amountCents: item.amountCents
-          })),
-          movementRefsTruncated: state.result.movements.length > 500,
-          exceptionRefs: sessionExceptions.slice(0, 100).map(item => ({
-            code: item.code, date: item.date, reference: item.ref, amountCents: item.amountCents
-          })),
-          exceptionRefsTruncated: sessionExceptions.length > 100
-        }
-      });
+      // The server recalculates expected cash and builds the immutable snapshot.
+      state.session = await sessionRequest('close', { actualClosing: actual });
       if (!vaultIsOpen() || !state.password) return;
       renderSession(state.result);
       const savedExceptionCount = Number(state.session.exception_count ?? state.result.exceptions.length);
@@ -444,6 +445,8 @@
     state.result = null;
     state.refreshAgain = false;
     state.sessionReadToken += 1;
+    if (filterRefreshTimer) { window.clearTimeout(filterRefreshTimer); filterRefreshTimer = null; }
+    window.vaultBreakdowns = {};
     ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit', 'vcpOverpayments',
       'vcpMovementCount', 'vcpExceptionCount', 'vaultControlMessage'].forEach(id => setText(id, '—'));
     setText('vaultControlStatus', 'Vault locked');
@@ -468,6 +471,10 @@
     if (typeof originalCalculate === 'function' && !originalCalculate.__vaultFinancialWrapped) {
       const wrapped = async function () {
         if (!vaultIsOpen()) return null;
+        // Preserve the existing billed/debt/discount/waiver summary. The audited
+        // engine runs afterwards and replaces all cash figures with authoritative totals.
+        try { await originalCalculate.apply(this, arguments); }
+        catch (error) { console.error('[Gudlance Vault] Legacy student summary could not refresh:', error); }
         return refreshFinancialVault({ silent: true });
       };
       wrapped.__vaultFinancialWrapped = true;
@@ -515,7 +522,8 @@
 
   window.setVaultSessionPassword = password => { state.password = String(password || ''); };
   window.refreshFinancialVault = refreshFinancialVault;
+  window.scheduleVaultStatsRefresh = scheduleVaultStatsRefresh;
   injectPanel();
   installLegacyIntegration();
-  if (window.currentUser && vaultIsOpen()) refreshFinancialVault({ silent: true });
+  if (window.currentUser && vaultIsOpen() && typeof window.calculateVaultStats === 'function') window.calculateVaultStats();
 })();
