@@ -113,7 +113,7 @@ BEGIN
     ELSIF v_action = 'CLOSE' THEN
         IF p_expected_closing IS NULL OR p_actual_closing IS NULL
            OR p_actual_closing < 0 THEN
-            RAISE EXCEPTION 'Expected and actual closing balances must be zero or greater';
+            RAISE EXCEPTION 'Actual closing balance must be zero or greater';
         END IF;
 
         SELECT * INTO v_session
