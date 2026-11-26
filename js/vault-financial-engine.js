@@ -68,7 +68,10 @@
       ' <div class="vcp-metric"><small>Net cash movement</small><strong id="vcpNetCash">—</strong></div>',
       ' <div class="vcp-metric"><small>Period overpayments</small><strong id="vcpOverpayments">—</strong></div>',
       ' <div class="vcp-metric"><small>Student credit liability</small><strong id="vcpCredit">—</strong></div>',
+      ' <div class="vcp-metric"><small>ZiG tender (separate)</small><strong id="vcpZigTender">0.00</strong></div>',
+      ' <div class="vcp-metric"><small>ZiG expenses (separate)</small><strong id="vcpZigExpenses">0.00</strong></div>',
       '</div>',
+      '<div id="vcpZigNote" class="vcp-muted" style="margin-top:8px">ZiG is kept separate from USD.</div>',
       '<div class="vcp-section">',
       ' <div class="vcp-row"><strong style="color:#142b4a">Payment channel reconciliation</strong><span class="vcp-muted">USD only · no cross-currency addition</span></div>',
       ' <div class="vcp-table-wrap"><table><thead><tr><th>Account</th><th>Money in</th><th>Money out</th><th>Net movement</th></tr></thead><tbody id="vcpAccounts"></tbody></table></div>',
@@ -164,7 +167,9 @@
           '<div class="vcp-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th>Date</th><th>Reference</th><th>Issue</th><th>Amount</th></tr></thead><tbody>' +
           result.exceptions.map(item => '<tr><td>' + escapeHtml(item.code) + '</td><td>' + escapeHtml(item.date) +
             '</td><td>' + escapeHtml(item.ref) + '</td><td>' + escapeHtml(item.description) +
-            '</td><td style="text-align:right">' + formatMoney(item.amountCents) + '</td></tr>').join('') +
+            '</td><td style="text-align:right">' + (item.currency === 'ZiG'
+              ? 'ZiG ' + (Math.abs(item.amountCents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              : formatMoney(item.amountCents)) + '</td></tr>').join('') +
           '</tbody></table></div>'
         : '<div class="vcp-positive" style="font-weight:750">No calculation exceptions found in the selected records.</div>';
     }
@@ -188,8 +193,13 @@
 
     // Keep the established Vault summary cards synchronized with the audited calculation.
     setText('statCollectedUsd', (totals.collectionsCents / 100).toFixed(2));
-    const conversionRate = parseFloat($('zigRate')?.value) || 1;
-    setText('statCollectedZig', ((totals.collectionsCents / 100) * conversionRate).toFixed(2));
+    setText('statCollectedZig', ((totals.zigTenderCents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setText('vcpZigTender', ((totals.zigTenderCents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setText('vcpZigExpenses', ((totals.zigExpenseCents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    const hasZigActivity = (totals.zigTenderCents || 0) > 0 || (totals.zigExpenseCents || 0) > 0;
+    setText('vcpZigNote', hasZigActivity
+      ? 'ZiG activity is tracked separately and is not added to USD Net Cash. Legacy student receipts with ZiG tender but no historical exchange rate are held in Unclassified. The ZiG drawer still needs its own opening and closing count.'
+      : 'No ZiG tender or expenses were recorded in this date range. ZiG is never converted using today’s exchange rate.');
     setText('vaultCashExpenses', formatNumber(result.movements
       .filter(item => item.kind === 'expense' && item.account === 'cash')
       .reduce((sum, item) => sum + item.amountCents, 0)));
