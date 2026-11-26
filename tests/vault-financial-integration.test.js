@@ -48,14 +48,16 @@ test('daily cash sessions are isolated from the existing financial tables', () =
 });
 
 test('daily Vault endpoint verifies a Chief Admin and never exposes service credentials', () => {
-  const endpoint = read('functions/api/vault-session.js');
+  const endpoint = read('supabase/functions/vault-session/index.ts');
   assert.match(endpoint, /verifyChiefAdmin/);
-  assert.match(endpoint, /export async function onRequestPost/);
-  assert.match(endpoint, /context\.env/);
+  assert.match(endpoint, /Deno\.serve/);
+  assert.match(endpoint, /Deno\.env\.get\('SUPABASE_URL'\)/);
   assert.match(endpoint, /role\.includes\('level 3'\)/);
   assert.match(endpoint, /safeEqual/);
+  assert.match(endpoint, /SUPABASE_SECRET_KEYS/);
   assert.match(endpoint, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(endpoint, /record_vault_session/);
+  assert.match(read('supabase/config.toml'), /verify_jwt = false/);
   assert.doesNotMatch(read('js/vault-financial-engine.js'), /SUPABASE_SERVICE_ROLE_KEY/);
   assert.doesNotMatch(read('js/vault-financial-engine.js'), /localStorage\.setItem/);
 });
