@@ -88,9 +88,22 @@ The read-only source reconciliation establishes:
 
 The two walk-in shop receipts also present in the payments table are not added twice. Five other historical paid payment rows have no matching student-ledger record; they are included as fallback movements and explicitly flagged for review.
 
+## ZiG handling and known limitation
+
+The live source schema stores some student payments as a USD-equivalent amount plus a separate actual ZiG tender amount, but it does not persist the historical exchange rate needed to split the USD and ZiG portions of mixed payments. POS records have separate usdpaid and zigpaid fields, so their USD tender can be counted independently.
+
+The Vault therefore:
+- Shows actual recorded ZiG tender and ZiG expenses separately.
+- Never converts USD totals into ZiG using today's rate.
+- Keeps legacy mixed student receipts in Unclassified for USD cash reconciliation and flags the missing historical rate.
+- Keeps ZiG expenses out of USD Net Cash and flags ZiG activity for separate reconciliation.
+- Does not yet provide a ZiG opening-float/closing-count session. The daily physical session in this release is USD-only.
+
+The live database currently has zero active ZiG tender rows, zero active POS ZiG tender rows and no ZiG expense currency records. This limitation does not change the verified 24 November USD baseline. Full ZiG drawer reconciliation requires storing the exchange rate at payment time and adding a separate ZiG daily session.
+
 ## Regression coverage
 
-The Node test suite covers money rounding, mixed overpayment allocations, advance-credit settlements, mixed cash/credit allocation, missing-ledger receipt fallback, walk-in POS de-duplication, stock expenses, reconciled POS rows, inclusive dates, unclassified payment methods and payroll account allocation. Integration tests cover the script load order, migration access restrictions and server-side Chief Admin checks.
+The Node test suite covers money rounding, mixed overpayment allocations, advance-credit settlements, mixed cash/credit allocation, missing-ledger receipt fallback, walk-in POS de-duplication, ZiG/USD separation, stock expenses, reconciled POS rows, inclusive dates, unclassified payment methods and payroll account allocation. Integration tests cover the script load order, migration access restrictions and server-side Chief Admin checks.
 
 
 ## Existing source-table access
