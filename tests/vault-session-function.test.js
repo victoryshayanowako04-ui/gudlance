@@ -265,6 +265,8 @@ test('date-range calculations scope source reads while retaining prior credit hi
   assert.equal(paymentsUrl.searchParams.get('or'), '(and(date.gte.2026-11-24,date.lte.2026-11-24),date.is.null)');
   const payrollUrl = new URL(calls.find(call => call.url.includes('/payroll_history?')).url);
   assert.equal(payrollUrl.searchParams.get('or'), '(and(payment_date.gte.2026-11-24,payment_date.lte.2026-11-24),payment_date.is.null)');
+  const expensesUrl = new URL(calls.find(call => call.url.includes('/expenses?')).url);
+  assert.equal(expensesUrl.searchParams.get('or'), '(and(date.gte.2026-11-24,date.lte.2026-11-24),date.is.null)');
 });
 
 
