@@ -19,7 +19,7 @@ const APP_SHELL = [
   './js/vault-financial-core.js',
   './js/vault-financial-engine.js',
   './app.js?v=46',
-  './js/vault-financial-core.js?v=1',
+  './js/vault-financial-core.js?v=2',
   './js/vault-financial-engine.js?v=7'
 ];
 
