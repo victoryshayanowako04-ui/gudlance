@@ -57,7 +57,7 @@
       '<div class="vcp-row">',
       ' <div><div style="font-size:10px;font-weight:850;letter-spacing:.12em;color:#64748b;text-transform:uppercase">Financial control</div>',
       ' <h3 style="margin:4px 0 3px;color:#142b4a;font-size:19px">Vault Control Centre</h3>',
-      ' <div class="vcp-muted">Verified movements, account separation and daily cash control</div></div>',
+      ' <div class="vcp-muted">Traceable movements, account separation and daily cash control</div></div>',
       ' <span id="vaultControlStatus" class="vcp-status">Waiting for data</span>',
       '</div>',
       '<div id="vaultControlMessage" class="vcp-muted" style="margin-top:12px">Choose a date range above and refresh the Vault.</div>',
@@ -253,7 +253,7 @@
       (range.endDate || 'Latest recorded date') + ' · ' + result.movements.length +
       ' movements · ' + result.exceptions.length + ' exceptions';
     if (!badge) return;
-    badge.textContent = result.exceptions.length ? 'Review required · ' + result.exceptions.length : 'Calculation checks passed';
+    badge.textContent = result.exceptions.length ? 'Review required · ' + result.exceptions.length : 'No source exceptions';
     badge.className = 'vcp-status ' + (result.exceptions.length ? 'warn' : 'good');
   }
 
@@ -312,11 +312,11 @@
         (closed ? formatMoney(core.cents(session.actual_closing)) : formatMoney(result.totals.netCashCents)) + '</strong></div></div>' +
         (closed ? '<div class="' + (Number(session.variance) === 0 ? 'vcp-positive' : 'vcp-danger') +
           '" style="font-weight:850;margin-top:10px">Closing variance: ' + formatMoney(core.cents(session.variance)) +
-          (Number(session.variance) === 0 ? ' · Balanced' : ' · Difference requires investigation') + '</div>' :
+          (result.exceptions.length ? ' · Source exceptions remain' : (Number(session.variance) === 0 ? ' · Balanced' : ' · Difference requires investigation')) + '</div>' :
           '<div class="vcp-muted" style="margin-top:8px">Opening float is locked. Record the actual drawer count when the day is finished.</div>');
     }
-    setText('vcpSessionStatus', closed ? 'Day closed' : 'Opening float recorded');
-    if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status ' + (closed ? 'good' : 'warn');
+    setText('vcpSessionStatus', closed ? (result.exceptions.length ? 'Closed · review required' : 'Day closed') : 'Opening float recorded');
+    if ($('vcpSessionStatus')) $('vcpSessionStatus').className = 'vcp-status ' + (closed && !result.exceptions.length ? 'good' : 'warn');
     if ($('vcpClosingArea')) $('vcpClosingArea').style.display = closed ? 'none' : 'block';
   }
 
