@@ -41,6 +41,8 @@ test('daily cash sessions are isolated from the existing financial tables', () =
   assert.match(migration, /variance = round\(p_actual_closing - p_expected_closing, 2\)/);
   assert.match(migration, /REVOKE ALL ON TABLE public\.vault_daily_sessions FROM PUBLIC, anon, authenticated/);
   assert.match(migration, /REVOKE ALL ON TABLE public\.vault_session_audit FROM PUBLIC, anon, authenticated/);
+  assert.match(migration, /SECURITY INVOKER/);
+  assert.doesNotMatch(migration, /SECURITY DEFINER/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.record_vault_session/);
 });
 
