@@ -51,8 +51,6 @@ const safeEqual = (leftValue, rightValue) => {
 };
 
 function getServerKey() {
-  const legacy = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (legacy) return legacy;
   const secretMap = Deno.env.get('SUPABASE_SECRET_KEYS');
   if (secretMap) {
     try {
@@ -60,7 +58,7 @@ function getServerKey() {
       if (parsed && parsed.default) return parsed.default;
     } catch (_) {}
   }
-  return '';
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 }
 
 async function supabaseRequest(path, options) {
@@ -130,7 +128,7 @@ const VAULT_SOURCE_COLUMNS = {
   payments: 'id,receipt_no,student_id,amount,date,method,status,category,notes,zig,reconciled'
 };
 
-async function fetchAllVaultRows(table) {
+async function fetchAllVaultRows(table, filters = {}) {
   const columns = VAULT_SOURCE_COLUMNS[table];
   if (!columns) throw new Error('Unsupported Vault source table.');
   const pageSize = 1000;
@@ -143,6 +141,9 @@ async function fetchAllVaultRows(table) {
       limit: String(pageSize),
       offset: String(offset)
     });
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    });
     const batch = await supabaseRequest(table + '?' + params.toString());
     if (!Array.isArray(batch)) throw new Error('Unexpected response from Vault source table: ' + table);
     rows.push(...batch);
@@ -153,6 +154,18 @@ async function fetchAllVaultRows(table) {
   return rows;
 }
 
+function dateRangeFilters(column, startDate, endDate) {
+  const conditions = [];
+  if (startDate) conditions.push(column + '.gte.' + startDate);
+  if (endDate) conditions.push(column + '.lte.' + endDate);
+  if (!conditions.length) return {};
+  const rangeCondition = conditions.length === 2
+    ? 'and(' + conditions.join(',') + ')'
+    : conditions[0];
+  // Keep undated rows visible so the engine can flag them instead of silently hiding them.
+  return { or: '(' + rangeCondition + ',' + column + '.is.null)' };
+}
+
 async function calculateVaultReport(startDate, endDate) {
   const core = globalThis.GudlanceVaultCore;
   if (!core || typeof core.calculateVaultFinancials !== 'function') {
@@ -160,12 +173,16 @@ async function calculateVaultReport(startDate, endDate) {
     error.status = 503;
     throw error;
   }
+  const ledgerFilters = { type: 'in.(payment,overpayment,credit)' };
+  if (endDate) ledgerFilters.or = '(date.lte.' + endDate + ',date.is.null)';
   const [ledger, transactions, expenses, payroll, payments] = await Promise.all([
-    fetchAllVaultRows('student_ledger'),
-    fetchAllVaultRows('transactions'),
+    fetchAllVaultRows('student_ledger', ledgerFilters),
+    fetchAllVaultRows('transactions', dateRangeFilters('date', startDate, endDate)),
+    // Expense dates are stored both in the date column and inside legacy JSON data.
+    // Fetch this small source in full so neither representation is accidentally omitted.
     fetchAllVaultRows('expenses'),
-    fetchAllVaultRows('payroll_history'),
-    fetchAllVaultRows('payments')
+    fetchAllVaultRows('payroll_history', dateRangeFilters('payment_date', startDate, endDate)),
+    fetchAllVaultRows('payments', dateRangeFilters('date', startDate, endDate))
   ]);
   return core.calculateVaultFinancials({
     startDate, endDate,
@@ -216,6 +233,9 @@ Deno.serve(async request => {
       }
     }
     if (action !== 'calculate' && !['USD', 'ZiG'].includes(currency)) return respond(400, { error: 'Unsupported Vault currency.' });
+    if ((action === 'open' || action === 'close') && currency !== 'USD') {
+      return respond(400, { error: 'ZiG drawer opening and closing are not enabled yet. ZiG activity remains separate from USD cash.' });
+    }
     if (drawerId.length > 80) return respond(400, { error: 'Invalid cash drawer.' });
 
     const user = await verifyChiefAdmin(userId, password);
@@ -256,15 +276,68 @@ Deno.serve(async request => {
       return respond(200, { session });
     }
 
-    const expectedClosing = money(body.expectedClosing);
     const actualClosing = money(body.actualClosing);
-    if (expectedClosing === null || actualClosing === null || actualClosing < 0) {
+    if (actualClosing === null || actualClosing < 0) {
       return respond(400, { error: 'Enter a valid actual closing cash count.' });
     }
-    const snapshot = body.snapshot && typeof body.snapshot === 'object' && !Array.isArray(body.snapshot) ? body.snapshot : {};
-    if (JSON.stringify(snapshot).length > 100000) {
-      return respond(400, { error: 'The reconciliation snapshot is too large.' });
+
+    // The browser supplies only the physical count. Expected cash and the audit
+    // snapshot are rebuilt here from the saved opening float and live source records.
+    const sessionRows = await supabaseRequest(
+      'vault_daily_sessions?select=id,business_date,currency,drawer_id,opening_float,status&business_date=eq.' + businessDate +
+        '&currency=eq.' + encodeURIComponent(currency) +
+        '&drawer_id=eq.' + encodeURIComponent(drawerId) + '&limit=1'
+    );
+    const currentSession = Array.isArray(sessionRows) ? sessionRows[0] : null;
+    if (!currentSession) {
+      return respond(409, { error: 'Record the opening float before closing this business day.' });
     }
+    const openingFloat = money(currentSession.opening_float);
+    if (openingFloat === null || openingFloat < 0) {
+      return respond(409, { error: 'The saved opening float is invalid. The day cannot be closed.' });
+    }
+
+    const report = await calculateVaultReport(businessDate, businessDate);
+    if (!report || !report.totals || !Array.isArray(report.movements) || !Array.isArray(report.exceptions)) {
+      const error = new Error('The server could not build a complete closing snapshot.');
+      error.status = 503;
+      throw error;
+    }
+    const sessionExceptions = report.exceptions.filter(item => !item.currency || item.currency === currency);
+    const expectedClosing = money(openingFloat + Number(report.totals.netCashCents || 0) / 100);
+    if (expectedClosing === null || expectedClosing < 0) {
+      const error = new Error('The server calculated an invalid expected closing balance.');
+      error.status = 503;
+      throw error;
+    }
+    const snapshot = {
+      calculatedAt: new Date().toISOString(),
+      startDate: businessDate,
+      endDate: businessDate,
+      openingFloat,
+      collectionsCents: report.totals.collectionsCents,
+      cashInCents: report.totals.cashInCents,
+      cashOutCents: report.totals.cashOutCents,
+      netCashCents: report.totals.netCashCents,
+      expensesCents: report.totals.expensesCents,
+      payrollCents: report.totals.payrollCents,
+      overpaymentsCents: report.totals.overpaymentsCents,
+      creditLiabilityCents: report.totals.creditLiabilityCents,
+      exceptionCount: sessionExceptions.length,
+      movementCount: report.movements.length,
+      unclassifiedInCents: report.totals.unclassifiedInCents,
+      unclassifiedOutCents: report.totals.unclassifiedOutCents,
+      netOnlineCents: report.totals.netOnlineCents,
+      movementRefs: report.movements.slice(0, 500).map(item => ({
+        source: item.source, sourceId: item.sourceId, reference: item.reference,
+        account: item.account, kind: item.kind, amountCents: item.amountCents
+      })),
+      movementRefsTruncated: report.movements.length > 500,
+      exceptionRefs: sessionExceptions.slice(0, 100).map(item => ({
+        code: item.code, date: item.date, reference: item.ref, amountCents: item.amountCents
+      })),
+      exceptionRefsTruncated: sessionExceptions.length > 100
+    };
     const session = await supabaseRequest('rpc/record_vault_session', {
       method: 'POST',
       body: JSON.stringify({
