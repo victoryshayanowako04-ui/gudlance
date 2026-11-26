@@ -30,5 +30,6 @@ jobs:
           for file in main.js server.js service-worker.js parent-portal.js stationery.js netlify/functions/*.js tests/*.js; do
             node --check "$file"
           done
+          node --check < supabase/functions/vault-session/index.ts
       - name: Run regression tests
         run: npm test

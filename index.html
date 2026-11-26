@@ -1788,7 +1788,7 @@ window.saveGlobalSettingsTable = async function() {
     <div id="adminFinanceStats" style="display:none; margin-top:15px;">
         
         <!-- Date Filters & Action Buttons -->
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; background: #f4f6f7; padding: 10px; border-radius: 4px; border: 1px solid #bdc3c7; align-items: flex-end;">
+        <div class="vault-filter-bar" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; background: #f4f6f7; padding: 10px; border-radius: 4px; border: 1px solid #bdc3c7; align-items: flex-end;">
             <div style="flex: 1;">
                 <label style="font-size: 10px; color: #7f8c8d; text-transform: uppercase; font-weight: bold;">From Date</label>
                 <input type="date" id="vaultStartDate" class="input-standard" onchange="calculateVaultStats()" style="padding: 6px; font-size: 12px; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px;">
@@ -1800,12 +1800,12 @@ window.saveGlobalSettingsTable = async function() {
             
             <div style="flex: 1; min-width: 150px;">
                 <label style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold; margin-bottom: 5px; display: block;">Filter Class</label>
-                <input type="text" id="vaultClassFilter" class="input-standard" placeholder="e.g. Grade 1" onkeyup="calculateVaultStats()" style="padding: 10px 12px; font-size: 14px; width: 100%; box-sizing: border-box; border: 1px solid #bdc3c7; border-radius: 4px;">
+                <input type="text" id="vaultClassFilter" class="input-standard" placeholder="e.g. Grade 1" oninput="scheduleVaultStatsRefresh()" style="padding: 10px 12px; font-size: 14px; width: 100%; box-sizing: border-box; border: 1px solid #bdc3c7; border-radius: 4px;">
             </div>
 
             <div style="flex: 1; min-width: 150px;">
                 <label style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold; margin-bottom: 5px; display: block;">Filter Student</label>
-                <input type="text" id="vaultStudentFilter" class="input-standard" placeholder="Name or STU-123" onkeyup="calculateVaultStats()" style="padding: 10px 12px; font-size: 14px; width: 100%; box-sizing: border-box; border: 1px solid #bdc3c7; border-radius: 4px;">
+                <input type="text" id="vaultStudentFilter" class="input-standard" placeholder="Name or STU-123" oninput="scheduleVaultStatsRefresh()" style="padding: 10px 12px; font-size: 14px; width: 100%; box-sizing: border-box; border: 1px solid #bdc3c7; border-radius: 4px;">
             </div>
 
             <button onclick="calculateVaultStats()" title="Refresh Live Data" style="background: #3498db; color: white; border: none; border-radius: 3px; cursor: pointer; padding: 0 15px; height: 29px; font-size: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: 0.2s;">
@@ -5789,7 +5789,10 @@ window.showParentAttendance = async function() {
 <script src="js/icons.js"></script>
 
 <!-- 4. The Legacy App.js (Will shrink over time) -->
-<script src="app.js?v=44"></script>
+<script src="app.js?v=46"></script>
+<script src="js/vault-financial-core.js?v=4"></script>
+<script src="js/vault-financial-engine.js?v=14"></script>
+<script src="js/vault-auth.js?v=1"></script>
 <script src="stationery.js?v=3"></script>
 
 <script>
