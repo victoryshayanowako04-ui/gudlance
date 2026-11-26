@@ -397,7 +397,7 @@
   }
 
   async function refreshFinancialVault(options) {
-    if (state.loading) return;
+    if (!vaultIsOpen() || state.loading) return;
     if (!window.supabaseClient) {
       setText('vaultControlMessage', 'Supabase is not connected. No figures have been verified.');
       return;
@@ -493,10 +493,42 @@
       const wrappedLock = function () {
         state.password = '';
         state.session = null;
-        return originalLock.apply(this, arguments);
+        state.result = null;
+        const result = originalLock.apply(this, arguments);
+        ['vcpCollections', 'vcpExpenses', 'vcpPayroll', 'vcpNetCash', 'vcpCredit',
+          'vcpMovementCount', 'vcpExceptionCount', 'vaultControlMessage'].forEach(id => setText(id, '—'));
+        setText('vaultControlStatus', 'Vault locked');
+        setText('vcpSessionStatus', 'Not opened');
+        setText('vcpSessionDate', 'Select one date above');
+        ['vcpAccounts', 'vcpMovements', 'vcpExceptions', 'vcpSessionSummary'].forEach(id => {
+          const element = $(id);
+          if (element) element.innerHTML = '';
+        });
+        ['vcpOpeningFloat', 'vcpActualClosing'].forEach(id => {
+          const element = $(id);
+          if (element) element.value = '';
+        });
+        ['vcpOpeningArea', 'vcpClosingArea', 'vcpSessionSummary'].forEach(id => {
+          const element = $(id);
+          if (element) element.style.display = 'none';
+        });
+        return result;
       };
       wrappedLock.__vaultFinancialWrapped = true;
       window.lockAdminFinance = wrappedLock;
+    }
+
+    const originalLogout = window.logout;
+    if (typeof originalLogout === 'function' && !originalLogout.__vaultFinancialWrapped) {
+      const wrappedLogout = function () {
+        if (vaultIsOpen() && typeof window.lockAdminFinance === 'function') window.lockAdminFinance();
+        state.password = '';
+        state.session = null;
+        state.result = null;
+        return originalLogout.apply(this, arguments);
+      };
+      wrappedLogout.__vaultFinancialWrapped = true;
+      window.logout = wrappedLogout;
     }
   }
 
