@@ -1,14 +1,28 @@
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+const baseCorsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Cache-Control': 'no-store',
+  'Vary': 'Origin',
   'X-Content-Type-Options': 'nosniff'
 };
 
-const json = (status, payload) => new Response(JSON.stringify(payload), {
+const isAllowedOrigin = value => {
+  if (!value) return true;
+  try {
+    const origin = new URL(value);
+    return origin.protocol === 'https:' &&
+      (origin.hostname === 'gudlance.pages.dev' || origin.hostname.endsWith('.gudlance.pages.dev'));
+  } catch (_) { return false; }
+};
+
+const corsHeadersFor = origin => ({
+  ...baseCorsHeaders,
+  ...(origin && isAllowedOrigin(origin) ? { 'Access-Control-Allow-Origin': origin } : {})
+});
+
+const json = (status, payload, origin = '') => new Response(JSON.stringify(payload), {
   status,
-  headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+  headers: { ...corsHeadersFor(origin), 'Content-Type': 'application/json; charset=utf-8' }
 });
 
 const isDate = value => {
@@ -18,6 +32,7 @@ const isDate = value => {
 };
 
 const money = value => {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null;
   const number = Number(value);
   if (!Number.isFinite(number) || Math.abs(number) > 100000000000) return null;
   return Math.round((number + Number.EPSILON) * 100) / 100;
@@ -105,22 +120,31 @@ async function verifyChiefAdmin(userId, password) {
 }
 
 Deno.serve(async request => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const origin = request.headers.get('Origin') || '';
+  if (request.method === 'OPTIONS') {
+    if (!isAllowedOrigin(origin)) return new Response('Forbidden', { status: 403, headers: baseCorsHeaders });
+    return new Response('ok', { headers: corsHeadersFor(origin) });
+  }
+  if (origin && !isAllowedOrigin(origin)) return json(403, { error: 'This origin is not allowed to manage the Gudlance Vault.' });
   if (request.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
 
   try {
     const rawBody = await request.text();
-    if (rawBody.length > 40000) return json(413, { error: 'Vault request is too large.' });
+    if (rawBody.length > 120000) return json(413, { error: 'Vault request is too large.' });
     const body = JSON.parse(rawBody || '{}');
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { error: 'Invalid Vault request.' });
     const action = String(body.action || '').toLowerCase();
     const userId = String(body.userId || '').trim();
     const password = String(body.password || '');
     const businessDate = String(body.businessDate || '');
-    const currency = String(body.currency || 'USD') === 'ZiG' ? 'ZiG' : 'USD';
+    const currency = String(body.currency || 'USD');
     const drawerId = String(body.drawerId || 'main').trim() || 'main';
 
-    if (!userId || !password) return json(400, { error: 'Vault authentication is required.' });
+    if (!userId || !password || userId.length > 128 || password.length > 256) {
+      return json(400, { error: 'Vault authentication is required.' });
+    }
     if (!isDate(businessDate)) return json(400, { error: 'Select a valid business date.' });
+    if (!['USD', 'ZiG'].includes(currency)) return json(400, { error: 'Unsupported Vault currency.' });
     if (!['read', 'open', 'close'].includes(action)) return json(400, { error: 'Unsupported Vault action.' });
     if (drawerId.length > 80) return json(400, { error: 'Invalid cash drawer.' });
 
@@ -163,7 +187,7 @@ Deno.serve(async request => {
       return json(400, { error: 'Enter a valid actual closing cash count.' });
     }
     const snapshot = body.snapshot && typeof body.snapshot === 'object' ? body.snapshot : {};
-    if (JSON.stringify(snapshot).length > 30000) {
+    if (JSON.stringify(snapshot).length > 100000) {
       return json(400, { error: 'The reconciliation snapshot is too large.' });
     }
     const session = await supabaseRequest('rpc/record_vault_session', {
