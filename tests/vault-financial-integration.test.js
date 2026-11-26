@@ -69,6 +69,10 @@ test('Vault calculations run through the authenticated server function, not brow
   assert.match(endpoint, /rawBody.length > 120000/);
   assert.match(endpoint, /Unsupported Vault currency/);
   assert.match(engine, /sessionRequest\('calculate'/);
+  assert.match(engine, /zigTenderCents/);
+  assert.match(engine, /vcpZigNote/);
+  assert.match(engine, /sessionExceptionsFor/);
+  assert.doesNotMatch(engine, /conversionRate/);
   assert.doesNotMatch(engine, /supabaseClient\.from\(/);
   assert.doesNotMatch(engine, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.doesNotMatch(engine, /localStorage\.setItem/);
