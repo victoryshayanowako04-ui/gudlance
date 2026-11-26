@@ -11,11 +11,17 @@ test('legacy Vault no longer defaults an empty start date to today', () => {
   assert.doesNotMatch(app, /if \(startDateInput && !startDateInput\.value\)/);
 });
 
-test('stock purchases are included and reconciled POS records remain in historical totals', () => {
+test('the Vault calculator includes stock purchases and keeps reconciled POS history', () => {
   const app = read('app.js');
-  assert.doesNotMatch(app, /String\(exp\.id\)\.includes\(['"]EXP-INV['"]\)/);
-  assert.doesNotMatch(app, /sale\.reconciled === true\) return/);
-  assert.match(app, /sale\.usdpaid \?\? sale\.total \?\? sale\.amount/);
+  const start = app.indexOf("window.calculateVaultStats = async function()");
+  const end = app.indexOf("// Reconciliation Functions", start);
+  assert.notEqual(start, -1, 'Vault calculator must exist');
+  assert.notEqual(end, -1, 'Vault calculator boundary must exist');
+  const vault = app.slice(start, end);
+  assert.doesNotMatch(vault, /String\\(exp\\.id\\)\\.includes\\(['"]EXP-INV['"]\\)/);
+  assert.doesNotMatch(vault, /sale\\.reconciled === true\\) return/);
+  assert.match(vault, /sale\\.usdpaid \\?\\? sale\\.total \\?\\? sale\\.amount/);
+  assert.match(vault, /expData\\.method \\|\\| 'Not recorded'/);
 });
 
 test('the audited Vault modules load after the existing application script', () => {
