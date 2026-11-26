@@ -94,6 +94,16 @@ The read-only source reconciliation establishes:
 
 The two walk-in shop receipts also present in the payments table are not added twice. Five other historical paid payment rows have no matching student-ledger record; they are included as fallback movements and explicitly flagged for review.
 
+## Vault authentication protection
+
+The Vault Edge Function uses database-backed rate limiting before checking a Chief Admin password:
+- Separate hashed buckets are maintained for the client IP and the user/IP pair.
+- The first five failed attempts in a five-minute window can be checked; the next request is blocked.
+- A blocked bucket remains blocked for 15 minutes.
+- Successful authentication clears both buckets.
+- Only SHA-256 hashes are stored. Raw IP addresses and passwords are not written to the throttle table.
+- The throttle table is RLS-enabled and forced, with access granted only to the service role through the Edge Function.
+
 ## All-time source exceptions (26 November 2026)
 
 The full historical calculation identifies 30 unresolved source exceptions:
