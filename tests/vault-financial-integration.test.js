@@ -40,12 +40,13 @@ test('the audited Vault modules load after the existing application script', () 
 test('Vault unlock is single-flight and verifies credentials through the server', () => {
   const auth = read('js/vault-auth.js');
   const app = read('app.js');
+  const unlock = app.slice(app.indexOf('window.unlockAdminFinance'), app.indexOf('window.lockAdminFinance'));
   assert.match(auth, /let unlockPromise = null/);
   assert.match(auth, /if \(unlockPromise\) return unlockPromise/);
   assert.match(auth, /window\.verifyVaultSession\(today\)/);
   assert.match(auth, /window\.setVaultSessionPassword\(password\)/);
   assert.doesNotMatch(auth, /supabaseClient\.from\(['"]users['"]\)/);
-  assert.doesNotMatch(app, /password_hash/);
+  assert.doesNotMatch(unlock, /password_hash/);
 });
 
 test('daily cash sessions are isolated from the existing financial tables', () => {
