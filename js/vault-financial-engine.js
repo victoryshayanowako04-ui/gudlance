@@ -102,30 +102,6 @@
     $('vcpCloseButton').addEventListener('click', closeDailySession);
   }
 
-  async function fetchAll(table) {
-    const columns = {
-      student_ledger: 'id,student_id,date,type,description,amount,method,status,receipt_no,breakdown,is_credit_backed,credit_used,payment_notes,reconciled',
-      transactions: 'id,student_id,date,type,amount,description,receipt_no,status,category,total,reconciled,paymentmethod,item,usdpaid,zigpaid,discount,is_credit_backed,credit_applied_amount,payment_details,notes',
-      expenses: 'id,created_at,description,amount,date,data,payment_method,category,signed_by,status',
-      payroll_history: 'id,teacher_id,amount,payment_date,payroll_period,payment_method,status,reference_number,expenses,notes',
-      payments: 'id,receipt_no,student_id,amount,date,method,status,category,notes'
-    };
-    const pageSize = 1000;
-    const rows = [];
-    let offset = 0;
-    while (true) {
-      const response = await window.supabaseClient.from(table).select(columns[table] || '*')
-        .order('id', { ascending: true }).range(offset, offset + pageSize - 1);
-      if (response.error) throw new Error(table + ': ' + response.error.message);
-      const batch = response.data || [];
-      rows.push(...batch);
-      if (batch.length < pageSize) break;
-      offset += pageSize;
-      if (offset > 500000) throw new Error(table + ' exceeded the safe pagination limit.');
-    }
-    return rows;
-  }
-
   async function sessionRequest(action, extra) {
     const user = window.currentUser;
     if (!state.password || !user?.id) throw new Error('Unlock the Vault again to manage its daily cash session.');
@@ -142,7 +118,7 @@
     }
     const { data, error } = await window.supabaseClient.functions.invoke('vault-session', { body: payload });
     if (error) throw new Error(error.message || 'Vault session request failed.');
-    return data?.session || null;
+    return action === 'calculate' ? (data?.result || null) : (data?.session || null);
   }
 
   function setText(id, value) {
@@ -411,31 +387,23 @@
   async function refreshFinancialVault(options) {
     if (!vaultIsOpen()) return;
     if (state.loading) { state.refreshAgain = true; return; }
-    if (!window.supabaseClient) {
-      setText('vaultControlMessage', 'Supabase is not connected. No figures have been verified.');
+    if (!window.supabaseClient?.functions?.invoke) {
+      setText('vaultControlMessage', 'The secure Vault calculation service is unavailable. No figures have been verified.');
       return;
     }
     state.loading = true;
     try {
       injectPanel();
-      const datasets = await Promise.all([
-        fetchAll('student_ledger'),
-        fetchAll('transactions'),
-        fetchAll('expenses'),
-        fetchAll('payroll_history'),
-        fetchAll('payments')
-      ]);
       const range = dateRange();
       if (!vaultIsOpen()) return null;
-      const result = core.calculateVaultFinancials({
+      const result = await sessionRequest('calculate', {
         startDate: range.startDate,
-        endDate: range.endDate,
-        ledger: datasets[0],
-        transactions: datasets[1],
-        expenses: datasets[2],
-        payroll: datasets[3],
-        payments: datasets[4]
+        endDate: range.endDate
       });
+      if (!result || !result.totals || !Array.isArray(result.movements) || !Array.isArray(result.exceptions)) {
+        throw new Error('The secure calculation service returned an incomplete result.');
+      }
+      state.result = result;
       renderResult(result);
       return result;
     } catch (error) {
@@ -482,9 +450,8 @@
     const originalCalculate = window.calculateVaultStats;
     if (typeof originalCalculate === 'function' && !originalCalculate.__vaultFinancialWrapped) {
       const wrapped = async function () {
-        const result = await originalCalculate.apply(this, arguments);
-        if (vaultIsOpen()) await refreshFinancialVault({ silent: true });
-        return result;
+        if (!vaultIsOpen()) return null;
+        return refreshFinancialVault({ silent: true });
       };
       wrapped.__vaultFinancialWrapped = true;
       window.calculateVaultStats = wrapped;
