@@ -301,7 +301,9 @@
       if (amountCents <= 0) return;
 
       const methodLabel = payment.method || '';
-      const account = classifyMethod(methodLabel);
+      const classifiedAccount = classifyMethod(methodLabel);
+      const paymentZigCents = Math.abs(cents(payment.zig));
+      const account = paymentZigCents > 0 ? 'unclassified' : classifiedAccount;
       const description = payment.notes || payment.category || 'Paid receipt missing from student ledger';
       const categoryText = String(payment.category || payment.notes || '').toLowerCase();
       const category = categoryText.includes('overpayment')
@@ -311,7 +313,16 @@
         addException('PAYMENT_CREDIT_SOURCE', date, reference, 'A paid payment row is marked as student credit; confirm its actual tender before including it as cash received.', amountCents);
         return;
       }
-      if (account === 'unclassified') {
+      if (paymentZigCents > 0) {
+        result.totals.zigTenderCents += paymentZigCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          'This fallback receipt contains actual ZiG tender. ZiG is kept separate from USD and needs its own daily opening and closing count.',
+          paymentZigCents, 'ZiG');
+        addException('ZIG_USD_SPLIT_REQUIRES_RATE', date, reference,
+          'The payment fallback stores a USD-equivalent amount but not the historical exchange rate needed to identify any USD component. It is held in Unclassified and excluded from physical USD Net Cash.',
+          amountCents, 'USD');
+      }
+      if (classifiedAccount === 'unclassified') {
         addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Fallback receipt payment method is missing or cannot be safely classified.', amountCents);
       }
       addException('PAYMENT_MISSING_LEDGER', date, reference, 'A paid receipt exists in payments but has no matching student ledger entry. It is included once as a fallback and needs review.', amountCents);
