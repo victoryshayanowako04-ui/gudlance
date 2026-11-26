@@ -278,6 +278,10 @@
     }
   }
 
+  function sessionExceptionsFor(result, currency) {
+    return (result?.exceptions || []).filter(item => !item.currency || item.currency === currency);
+  }
+
   function renderSession(result) {
     const session = state.session;
     if (!session) {
@@ -295,9 +299,10 @@
     const closed = String(session.status).toUpperCase() === 'CLOSED';
     const expected = closed ? Number(session.expected_closing) :
       Number(session.opening_float) + result.totals.netCashCents / 100;
+    const sessionCurrency = String(session.currency || 'USD');
     const savedExceptionCount = closed
       ? Number(session.exception_count ?? session.closing_snapshot?.exceptionCount ?? 0)
-      : result.exceptions.length;
+      : sessionExceptionsFor(result, sessionCurrency).length;
     if ($('vcpSessionSummary')) {
       $('vcpSessionSummary').style.display = 'block';
       $('vcpSessionSummary').innerHTML = '<div class="vcp-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0">' +
@@ -307,7 +312,7 @@
         (closed ? formatMoney(core.cents(session.actual_closing)) : formatMoney(result.totals.netCashCents)) + '</strong></div></div>' +
         (closed ? '<div class="' + (Number(session.variance) === 0 && session.is_verified === true ? 'vcp-positive' : 'vcp-danger') +
           '" style="font-weight:850;margin-top:10px">Closing variance: ' + formatMoney(core.cents(session.variance)) +
-          (savedExceptionCount ? ' · ' + savedExceptionCount + ' source exceptions at close' : (session.is_verified === true ? ' · Balanced and verified' : ' · Closed but not fully verified')) + '</div>' :
+          (savedExceptionCount ? ' · ' + savedExceptionCount + ' source exceptions at close' : (session.is_verified === true ? ' · ' + sessionCurrency + ' drawer balanced and verified' : ' · Closed but not fully verified')) + '</div>' :
           '<div class="vcp-muted" style="margin-top:8px">Opening float is locked. Record the actual drawer count when the day is finished.</div>');
     }
     const verified = closed && session.is_verified === true;
@@ -343,6 +348,8 @@
     const actual = Number(rawActual);
     if (!Number.isFinite(actual) || actual < 0) return alert('Enter the actual cash count.');
     const expected = Number(state.session.opening_float) + state.result.totals.netCashCents / 100;
+    const sessionCurrency = String(state.session.currency || 'USD');
+    const sessionExceptions = sessionExceptionsFor(state.result, sessionCurrency);
     if (button) { button.disabled = true; button.textContent = 'Reconciling…'; }
     try {
       state.session = await sessionRequest('close', {
@@ -360,7 +367,7 @@
           payrollCents: state.result.totals.payrollCents,
           overpaymentsCents: state.result.totals.overpaymentsCents,
           creditLiabilityCents: state.result.totals.creditLiabilityCents,
-          exceptionCount: state.result.exceptions.length,
+          exceptionCount: sessionExceptions.length,
           movementCount: state.result.movements.length,
           unclassifiedInCents: state.result.totals.unclassifiedInCents,
           unclassifiedOutCents: state.result.totals.unclassifiedOutCents,
@@ -370,22 +377,22 @@
             account: item.account, kind: item.kind, amountCents: item.amountCents
           })),
           movementRefsTruncated: state.result.movements.length > 500,
-          exceptionRefs: state.result.exceptions.slice(0, 100).map(item => ({
+          exceptionRefs: sessionExceptions.slice(0, 100).map(item => ({
             code: item.code, date: item.date, reference: item.ref, amountCents: item.amountCents
           })),
-          exceptionRefsTruncated: state.result.exceptions.length > 100
+          exceptionRefsTruncated: sessionExceptions.length > 100
         }
       });
       if (!vaultIsOpen() || !state.password) return;
       renderSession(state.result);
       const savedExceptionCount = Number(state.session.exception_count ?? state.result.exceptions.length);
       if (state.session.is_verified === true) {
-        alert('Vault closed, balanced and fully reconciled.');
+        alert('USD cash drawer closed, balanced and fully reconciled.');
       } else if (savedExceptionCount > 0) {
-        alert('The day was closed, but ' + savedExceptionCount +
-          ' financial exceptions were unresolved at closing. It is not marked fully verified.');
+        alert('The USD cash drawer was closed, but ' + savedExceptionCount +
+          ' USD financial exceptions were unresolved at closing. It is not marked fully verified.');
       } else {
-        alert('Vault closed but is not fully reconciled. Investigate the closing variance or verification status.');
+        alert('USD cash drawer closed but is not fully reconciled. Investigate the closing variance or verification status.');
       }
     } catch (error) {
       alert('Vault closing was not saved: ' + error.message);
