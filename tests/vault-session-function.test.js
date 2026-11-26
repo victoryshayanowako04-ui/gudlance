@@ -17,6 +17,7 @@ function createHandler(options = {}) {
   const users = options.users || [];
   const sessions = options.sessions || [];
   const sources = options.sources || {};
+  const rateLimitAllowed = options.rateLimitAllowed !== false;
   const env = {
     SUPABASE_URL: 'https://example.supabase.co',
     SUPABASE_SERVICE_ROLE_KEY: 'test-server-key',
@@ -27,6 +28,14 @@ function createHandler(options = {}) {
     calls.push({ url: String(url), method, headers: init.headers || {}, body: init.body || null });
     const parsed = new URL(String(url));
     const table = parsed.pathname.split('/').pop();
+    if (table === 'consume_vault_auth_attempt') {
+      return new Response(JSON.stringify([{
+        allowed: rateLimitAllowed,
+        attempts: rateLimitAllowed ? 1 : 6,
+        retry_after_seconds: rateLimitAllowed ? 0 : 900
+      }]), { status: 200 });
+    }
+    if (table === 'clear_vault_auth_attempt') return new Response('null', { status: 200 });
     if (table === 'users') return new Response(JSON.stringify(users), { status: 200 });
     if (table === 'vault_daily_sessions') return new Response(JSON.stringify(sessions), { status: 200 });
     if (table === 'record_vault_session') {
@@ -63,6 +72,7 @@ function createHandler(options = {}) {
     Response,
     Request,
     Headers,
+    crypto,
     console
   }, { filename: 'supabase/functions/vault-session/index.ts' });
   assert.equal(typeof handler, 'function');
@@ -124,7 +134,9 @@ test('Vault read requires a valid Chief Admin and password and does not write re
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(payload.session, null);
-  assert.deepEqual(calls.map(call => call.method), ['GET', 'GET']);
+  assert.deepEqual(calls.filter(call => !call.url.includes('/rpc/')).map(call => call.method), ['GET', 'GET']);
+  assert.equal(calls.filter(call => call.url.includes('/rpc/consume_vault_auth_attempt')).length, 2);
+  assert.equal(calls.filter(call => call.url.includes('/rpc/clear_vault_auth_attempt')).length, 2);
   assert.ok(calls.every(call => call.headers.apikey === 'test-server-key'));
 });
 
@@ -183,7 +195,7 @@ test('Vault financial calculations run server-side after Chief Admin verificatio
   assert.equal(payload.result.totals.cashInCents, 2500);
   assert.equal(payload.result.totals.collectionsCents, 2500);
   assert.equal(payload.result.movements.length, 1);
-  assert.ok(calls.every(call => call.method === 'GET'));
+  assert.ok(calls.filter(call => !call.url.includes('/rpc/')).every(call => call.method === 'GET'));
   assert.ok(calls.some(call => call.url.includes('/rest/v1/student_ledger?')));
 });
 
@@ -253,4 +265,31 @@ test('date-range calculations scope source reads while retaining prior credit hi
   assert.equal(paymentsUrl.searchParams.get('or'), '(and(date.gte.2026-11-24,date.lte.2026-11-24),date.is.null)');
   const payrollUrl = new URL(calls.find(call => call.url.includes('/payroll_history?')).url);
   assert.equal(payrollUrl.searchParams.get('or'), '(and(payment_date.gte.2026-11-24,payment_date.lte.2026-11-24),payment_date.is.null)');
+});
+
+
+test('Vault authentication is blocked after the persistent throttle is reached', async () => {
+  const { handler, calls } = createHandler({ rateLimitAllowed: false });
+  const response = await handler(post(JSON.stringify({
+    action: 'read', userId: 'chief-1', password: 'wrong-pass',
+    businessDate: '2026-11-24', currency: 'USD'
+  })));
+  assert.equal(response.status, 429);
+  const payload = await response.json();
+  assert.equal(payload.retryAfterSeconds, 900);
+  assert.equal(calls.filter(call => call.url.includes('/rpc/consume_vault_auth_attempt')).length, 2);
+  assert.equal(calls.some(call => call.url.includes('/rest/v1/users?')), false);
+});
+
+test('successful Vault authentication clears both hashed throttle buckets', async () => {
+  const { handler, calls } = createHandler({
+    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }],
+    sessions: []
+  });
+  const response = await handler(post(JSON.stringify({
+    action: 'read', userId: 'chief-1', password: 'correct-pass',
+    businessDate: '2026-11-24', currency: 'USD'
+  })));
+  assert.equal(response.status, 200);
+  assert.equal(calls.filter(call => call.url.includes('/rpc/clear_vault_auth_attempt')).length, 2);
 });
