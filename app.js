@@ -1181,7 +1181,7 @@ window.getNormalizedRole = function(rawRole) {
     const role = String(rawRole || '').trim();
     if (!role) return 'Level 1';
     const lowered = role.toLowerCase();
-    if (lowered.includes('god')) return 'God Mode';
+    if (lowered.includes('god')) return 'Unknown';
     if (lowered.includes('level 3') || lowered === 'chief admin' || lowered === 'level3') return 'Level 3';
     if (lowered.includes('level 2') || lowered === 'admin' || lowered === 'level2') return 'Level 2';
     if (lowered.includes('level 1') || lowered === 'teacher' || lowered === 'finance' || lowered === 'staff') return 'Level 1';
@@ -1192,7 +1192,6 @@ window.canAccessRoleFeature = function(feature, currentRole) {
     const role = window.getNormalizedRole(currentRole || (window.currentUser && window.currentUser.role));
     const featureKey = String(feature || '').toLowerCase();
 
-    if (role === 'God Mode') return true;
     if (role === 'Level 3') return true;
 
     if (role === 'Level 1') {
@@ -1204,7 +1203,7 @@ window.canAccessRoleFeature = function(feature, currentRole) {
         return !blocked.includes(featureKey);
     }
 
-    return true;
+    return false;
 };
 
 window.applyUserRole = function(role) {
@@ -1248,11 +1247,6 @@ window.applyUserRole = function(role) {
         adminEditOnlyItems.forEach(el => el.style.display = 'inline-block');
         chiefAdminItems.forEach(el => el.style.display = 'block');
 
-    } else if (normalizedRole === 'God Mode') {
-        document.body.classList.add("role-god");
-        adminOnlyItems.forEach(el => el.style.display = 'block');
-        adminEditOnlyItems.forEach(el => el.style.display = 'inline-block');
-        chiefAdminItems.forEach(el => el.style.display = 'block');
     }
 
     if (normalizedRole === 'Level 2' && typeof window.openSetTab === 'function') {
@@ -1264,15 +1258,8 @@ window.applyUserRole = function(role) {
 window.evaluateGodModeUI = function(currentUser) {
     const upgradeControls = document.getElementById('godModeUpgradeControls');
     if (!upgradeControls) return;
-
-    const isGodMode = (currentUser && (currentUser.username === 'Jayden' || currentUser.user === 'Jayden' || currentUser.username === 'HuggoDev' || currentUser.user === 'System Creator'));
-
-    if (isGodMode) {
-        console.log("⚡ God Mode active: Unlocking System Upgrade controls.");
-        upgradeControls.style.display = 'block';
-    } else {
-        upgradeControls.style.display = 'none';
-    }
+    const role = window.getNormalizedRole(currentUser && currentUser.role);
+    upgradeControls.style.display = role === 'Level 3' ? 'block' : 'none';
 };
 
 window.cancelChiefAdminVerification = function() {
@@ -1369,15 +1356,6 @@ window.attemptLogin = async function() {
     const uInput = document.getElementById('loginUser').value.trim();
     const pInput = document.getElementById('loginPass').value;
 
-    // 🌟 Check if God is knocking at the door
-    const isGodModeAttempt = (uInput === "Jayden" && pInput === "vicsim291183");
-
-    // Block login immediately if the system is in upgrade mode, UNLESS it is God Mode
-    if (window.settings && window.settings.upgradeMode === true && !isGodModeAttempt) {
-        if (typeof window.triggerUpgradeMode === 'function') window.triggerUpgradeMode();
-        return;
-    }
-
     const loginBtn = document.querySelector('#loginScreen button');
     const originalBtnText = loginBtn ? loginBtn.innerText : "Secure Login";
     if (window.loginInProgress) return;
@@ -1393,35 +1371,7 @@ window.attemptLogin = async function() {
         }
     };
 
-    // --- 🌟 GOD MODE INTERCEPTOR 🌟 ---
-    if (isGodModeAttempt) {
-        const godUser = { id: "DEV_001", user: "Jayden", username: "Jayden", password: "vicsim291183", role: "God Mode", permissions: "all", sessionId: "GOD-MODE" };
-        localStorage.setItem('currentUser', JSON.stringify(godUser));
-        window.currentUser = godUser;
 
-        if(document.getElementById('currentUserStatusBox')) {
-            document.getElementById('currentUserStatusBox').style.display = 'block';
-            document.getElementById('sidebarUserName').innerText = window.currentUser.user;
-        }
-
-        if (typeof window.evaluateGodModeUI === 'function') window.evaluateGodModeUI(window.currentUser);
-        if (typeof applyUserRole === 'function') applyUserRole("God Mode");
-
-        document.getElementById('loginScreen').style.display = 'none';
-        window.startUserInactivityMonitor();
-        if (typeof window.loadSchoolAssets === 'function') {
-            window.loadSchoolAssets().catch(error => console.error('School asset startup load failed:', error));
-        }
-        window.appInitializationPromise = window.initializeApp();
-        window.appInitializationPromise.catch(error => console.error('Background cloud initialization failed:', error));
-        if (typeof window.recordVisit === 'function') {
-            window.recordVisit(godUser.user, godUser.role, 'System Visit', 'System login');
-        }
-        resetLoginAttempt();
-
-        return; 
-    }
-    // --- END GOD MODE ---
 
     try {
         if (!navigator.onLine) throw new Error("An active internet connection is required before the system can open.");
@@ -1515,6 +1465,12 @@ window.attemptLogin = async function() {
             let determinedRole = foundUser.role || (foundUser.data ? foundUser.data.role : "Level 1"); 
             if(determinedRole === "Admin") determinedRole = "Level 2"; 
             if(determinedRole === "Chief Admin") determinedRole = "Level 3"; 
+
+            if (window.settings && window.settings.upgradeMode === true && window.getNormalizedRole(determinedRole) !== 'Level 3') {
+                if (typeof window.triggerUpgradeMode === 'function') window.triggerUpgradeMode();
+                resetLoginAttempt();
+                return;
+            }
 
             // Email verification is temporarily disabled.
             // Restore it later by re-enabling the Chief Admin verification call.
@@ -9747,10 +9703,8 @@ window.addExpense = async function() {
     if (typeof window.calculateReconciliation === 'function') window.calculateReconciliation();
 };
 window.deleteExpense = async function(id) {
-    const role = (window.currentUser?.role || "").toLowerCase();
-    
-    // Robust check for any admin or God level
-    if (!(role.includes('level 2') || role.includes('level 3') || role.includes('admin') || role.includes('god'))) {
+    const role = window.getNormalizedRole(window.currentUser?.role);
+    if (role !== 'Level 2' && role !== 'Level 3') {
         return alert("❌ Access Denied: Only Admins can void expenses.");
     }
 
@@ -9779,11 +9733,9 @@ window.deleteExpense = async function(id) {
 
 
 window.clearExpenses = async function() {
-    const role = (window.currentUser?.role || "").toLowerCase();
-    
-    // Robust check specifically for Chief Admin or God Mode
-    if (!(role === 'chief admin' || role.includes('god'))) {
-        return alert("❌ Access Denied: Only Chief Admins and God Mode can clear the expense history.");
+    const role = window.getNormalizedRole(window.currentUser?.role);
+    if (role !== 'Level 3') {
+        return alert("❌ Access Denied: Only Chief Admins can clear the expense history.");
     }
 
     if(confirm("⚠️ WARNING: Are you sure you want to VOID ALL active expenses? They will be retained in the database but hidden from the daily ledger.")) {
@@ -9890,16 +9842,11 @@ window.renderExpenses = function() {
     
     listDiv.innerHTML = ''; 
 
-    // Convert role to lowercase to prevent case-sensitivity bugs (e.g., 'God mode' vs 'God Mode')
-    const role = (window.currentUser?.role || "").toLowerCase();
+    const role = window.getNormalizedRole(window.currentUser?.role);
+    const isSuperAdmin = role === 'Level 3';
+    const canDelete = role === 'Level 2' || role === 'Level 3';
     
-    // Chief Admin or God Mode can see the Global Clear button
-    const isSuperAdmin = (role === 'chief admin' || role.includes('god'));
-    
-    // Level 2, Level 3, Admin, Chief Admin, and God Mode can see the individual ❌ button
-    const canDelete = (role.includes('level 2') || role.includes('level 3') || role.includes('admin') || role.includes('god'));
-    
-    // UI SECURITY: Reveal the global clear button ONLY if Chief Admin or God Mode
+    // Reveal the global clear button only to the Chief Admin role.
     if (clearBtn) {
         clearBtn.style.display = isSuperAdmin ? 'inline-block' : 'none';
     }
@@ -10097,10 +10044,9 @@ window.toggleCustomDates = function() {
 // ==========================================
 
 window.createNewUser = async function() { 
-    // Developer God Mode and Chief Admin accounts can create staff accounts.
     const normalizedRole = window.getNormalizedRole(window.currentUser?.role);
-    if (!(normalizedRole === 'Level 3' || normalizedRole === 'God Mode')) {
-        return alert("❌ Access Denied: Only Chief Admins and God Mode can create staff accounts.");
+    if (normalizedRole !== 'Level 3') {
+        return alert("❌ Access Denied: Only Chief Admins can create staff accounts.");
     }
 
     const nameInput = document.getElementById('newUserName').value.trim();
@@ -18118,160 +18064,7 @@ const legacyApproveApplication = window.approveApplication;
 // 🧨 ULTIMATE FACTORY RESET ENGINE (UPGRADED & FIX APPLIED)
 // ==========================================
 window.factoryResetSystem = async function() {
-    const role = window.currentUser?.role || "";
-    const normalizedRole = window.getNormalizedRole ? window.getNormalizedRole(role) : role;
-    const isChiefAdmin = normalizedRole === 'Level 3' || normalizedRole === 'God Mode';
-
-    if (!isChiefAdmin) {
-        return alert("❌ CRITICAL ACTION DENIED: Only Level 3 (Chief Admins) and God Mode have clearance to initiate a Factory Reset.");
-    }
-
-    if (!navigator.onLine) {
-        return alert("⚠️ You must be online to perform a full system reset to ensure the cloud database is also cleared.");
-    }
-
-    const confirm1 = confirm("⚠️ CRITICAL WARNING: You are about to permanently delete ALL students, ledgers, payroll, academic reports, and financial records.\n\nThis action requires TWO-KEY AUTHENTICATION (Chief Admin + Developer). \n\nProceed to authentication?");
-    if (!confirm1) return;
-
-    // --- KEY 1: CHIEF ADMIN AUTHENTICATION ---
-    const adminPass = (window.currentUser?.username === 'Jayden' || window.currentUser?.user === 'Jayden') ? 'vicsim291183' : (window.currentUser?.password || window.currentUser?.pass || '');
-    const adminAuth = prompt("🔐 KEY 1 (Chief Admin):\n\nTo initiate the wipe protocol, enter your exact account password below:");
-    
-    if (adminAuth !== adminPass) {
-        return alert("❌ Factory Reset aborted. Chief Admin verification failed.");
-    }
-
-    // --- KEY 2: DEVELOPER AUTHENTICATION ---
-    // Change 'DevPassword123!' to whatever secret master password you want to hold as the developer.
-    const DEV_MASTER_PASSWORD = "vicsim291183"; 
-    const devAuth = prompt("🔐 KEY 2 (Developer / God Mode):\n\nThe Chief Admin has authorized the wipe.\nDeveloper co-authorization is required to execute. Enter the Developer Master Override Key:");
-
-    if (devAuth !== DEV_MASTER_PASSWORD) {
-        return alert("❌ Factory Reset aborted. Developer co-authorization failed.");
-    }
-
-    const confirmFinal = confirm("☢️ DUAL-AUTHENTICATION SUCCESSFUL.\n\nAll data is about to be destroyed. Staff accounts will be preserved.\n\nClick OK to pull the trigger.");
-    if (!confirmFinal) return;
-
-    document.body.style.opacity = '0.5'; 
-
-    // 2. Nuke Local Storage
-    const keysToRemove = [
-        'haven_students', 
-        'havenFeeStructures',
-        'haven_settings', 
-        'school_settings', 
-        'haven_classes',
-        'haven_inventory',
-        'havenTransactions',
-        'haven_expenses', 
-        'haven_walkin_ledger', 
-        'havenOfflineQueue',
-        'haven_teachers',
-        'havenAllocations',
-        'havenAttendance',
-        'haven_data',
-        'haven_academic_reports'
-    ];
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-
-    // 3. Clear active memory arrays completely
-    window.students = [];
-    window.feeStructures = {};
-    window.inventory = [];
-    window.transactions = [];
-    window.expenses = [];
-    window.walkinLedger = []; 
-    if (document.getElementById('parentPayAmount')) document.getElementById('parentPayAmount').value = '';
-    window.officialClasses = [];
-    window.teachers = [];
-    window.allocations = [];
-    window.attendanceLogs = [];
-    window.attendanceData = []; 
-    window.payrollHistory = [];
-    window.shopCart = [];
-    window.ecoCashTransactions = [];
-    window.academicReports = []; 
-
-    // 4. Nuke Supabase Cloud Database (SAFE DEPENDENCY ORDER LOOP)
-    try {
-        console.log("🧨 Wiping Complete Cloud Database (Protecting Users)...");
-        
-        if (typeof window.supabaseClient !== 'undefined') {
-            
-            // Strategically ordered target list to satisfy relational constraints
-            const tablesToWipe = [
-                // Tier A: Transactional Child Nodes
-                'ledger',                 
-                'student_ledger',         
-                'payment_breakdowns',
-                'voided_transactions',
-                'reconciliations',
-                'academic_reports',     
-                'transactions',
-                'shop_sales',
-                'expenses',
-                'payroll_history',
-                'attendance_logs',
-                'payments',
-                'attendance',
-                
-                // Tier B: System Module Nodes & Settings
-                'school_assets',
-                'deployment_roster',
-                'allocations',
-                'pending_applications',
-                'fee_structures',
-                'inventory',
-                'transport_zones',        
-                'school_settings',        
-                'school_data',            
-
-                // Tier C: Core Functional Parent Nodes 
-                'teachers',
-                'classes',
-                'students' 
-            ];
-            
-            let errorCount = 0;
-
-            for (const table of tablesToWipe) {
-                try {
-                    let response;
-                    // Handle table-specific primary identifier columns so query doesn't fail
-                    if (table === 'classes') {
-                        response = await window.supabaseClient.from(table).delete().not('level', 'is', null);
-                    } else if (table === 'transport_zones') {
-                        response = await window.supabaseClient.from(table).delete().not('zone_code', 'is', null);
-                    } else {
-                        response = await window.supabaseClient.from(table).delete().not('id', 'is', null);
-                    }
-
-                    if (response.error) throw response.error; 
-
-                    console.log(`✅ Cleared cloud table: ${table}`);
-                } catch (err) {
-                    console.warn(`⚠️ Skipped table ${table}:`, err.message || err);
-                    errorCount++;
-                }
-            }
-
-            if (errorCount === 0) {
-                alert("✅ SYSTEM WIPED SUCCESSFULLY. User accounts preserved. Rebooting...");
-            } else {
-                alert(`⚠️ System wiped, but skipped ${errorCount} tables (usually new modules not yet initialized in Supabase). User accounts preserved. Rebooting...`);
-            }
-            window.location.reload(); 
-        } else {
-            alert("⚠️ Cloud client missing. Only local cache partition was wiped. Rebooting...");
-            window.location.reload();
-        }
-
-    } catch (error) {
-        console.error("Cloud Wipe Error:", error);
-        alert("Local cache was cleared, but an error occurred during cloud synchronization. Reloading...");
-        window.location.reload();
-    }
+    alert("Factory Reset is temporarily unavailable while secure server-side authorization and audit controls are being implemented. No data has been changed.");
 };
 
 // ==========================================
@@ -24924,8 +24717,8 @@ window.renderAuditLog = async function() {
     }
 
     // Check user role for delete permissions
-    const userRole = window.currentUser ? (window.currentUser.role || '').toLowerCase() : '';
-    const canDelete = userRole === 'level 3' || userRole === 'god mode';
+    const userRole = window.getNormalizedRole(window.currentUser && window.currentUser.role);
+    const canDelete = userRole === 'Level 3';
 
     // Render the table safely
     tbody.innerHTML = audits.map(audit => {
@@ -24987,9 +24780,9 @@ window.renderAuditLog = async function() {
 
 // 🎯 NEW: Function to handle the deletion securely
 window.deleteAuditRecord = async function(auditId) {
-    const userRole = window.currentUser ? (window.currentUser.role || '').toLowerCase() : '';
-    if (userRole !== 'level 3' && userRole !== 'god mode') {
-        alert("❌ Unauthorized. Only Level 3 and God Mode users can delete audit records.");
+    const userRole = window.getNormalizedRole(window.currentUser && window.currentUser.role);
+    if (userRole !== 'Level 3') {
+        alert("❌ Unauthorized. Only Level 3 users can delete audit records.");
         return;
     }
 
@@ -25086,6 +24879,9 @@ window.removeUpgradeMode = function() {
 // SYSTEM UPGRADE TOGGLE ENGINE
 // ==========================================
 window.toggleSystemUpgrade = async function(isUpgrading) {
+    if (window.getNormalizedRole(window.currentUser && window.currentUser.role) !== 'Level 3') {
+        return alert('Only a Chief Admin can change system maintenance mode.');
+    }
     try {
         console.log(`🛠️ Button clicked! Attempting to set upgrade mode to: ${isUpgrading}`);
         
@@ -26398,7 +26194,7 @@ function storeActorName() {
 
 function canOperateUniformStore() {
     const role = window.getNormalizedRole(window.currentUser && window.currentUser.role);
-    return ['Level 2', 'Level 3', 'God Mode'].includes(role);
+    return ['Level 2', 'Level 3'].includes(role);
 }
 
 function canReconcileUniformStore() {
@@ -27520,7 +27316,7 @@ function groceryActorName() {
 
 function canOperateGroceries() {
     const role = window.getNormalizedRole(window.currentUser && window.currentUser.role);
-    return ['Level 2', 'Level 3', 'God Mode'].includes(role);
+    return ['Level 2', 'Level 3'].includes(role);
 }
 
 function canManageGroceryProducts() {
