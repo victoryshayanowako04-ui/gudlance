@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(
   path.join(__dirname, '../supabase/functions/vault-session/index.ts'),
   'utf8'
-).replace(/^import ['\"]\.\/vault-financial-core\.js['\"];\\s*/, '');
+).replace(/^import ['\"]\.\/vault-financial-core\.js['\"];\s*/, '');
 const vaultCore = require('../js/vault-financial-core');
 const allowedOrigin = 'https://feature-vault-financial-reco.gudlance.pages.dev';
 
