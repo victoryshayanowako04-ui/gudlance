@@ -86,6 +86,7 @@
       unclassifiedOutCents: 0,
       overpaymentsCents: 0,
       creditLiabilityCents: 0,
+      zigTenderCents: 0,
       zigExpenseCents: 0
     },
     accounts: {
@@ -123,10 +124,10 @@
     const seen = new Set();
     const asOfDate = endDate || isoDate(source.today) || harareToday();
 
-    const addException = (code, date, ref, description, amountCents) => {
+    const addException = (code, date, ref, description, amountCents, currency = 'USD') => {
       result.exceptions.push({
         code, date: date || 'Date not recorded', ref: String(ref || 'No reference'),
-        description: String(description || code), amountCents: Math.abs(amountCents || 0)
+        description: String(description || code), amountCents: Math.abs(amountCents || 0), currency
       });
     };
     const addMovement = movement => {
