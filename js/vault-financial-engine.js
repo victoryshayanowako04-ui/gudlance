@@ -7,7 +7,7 @@
     return;
   }
 
-  const state = { password: '', result: null, session: null, loading: false, refreshAgain: false, sessionReadToken: 0 };
+  const state = { password: '', result: null, session: null, loading: false, refreshAgain: false, sessionReadToken: 0, legacyRunPromise: null, legacyRefreshAgain: false };
   const $ = id => document.getElementById(id);
   const formatNumber = cents => (Number(cents || 0) / 100).toLocaleString('en-US', {
     minimumFractionDigits: 2, maximumFractionDigits: 2
@@ -473,11 +473,32 @@
     if (typeof originalCalculate === 'function' && !originalCalculate.__vaultFinancialWrapped) {
       const wrapped = async function () {
         if (!vaultIsOpen()) return null;
-        // Preserve the existing billed/debt/discount/waiver summary. The audited
-        // engine runs afterwards and replaces all cash figures with authoritative totals.
-        try { await originalCalculate.apply(this, arguments); }
-        catch (error) { console.error('[Gudlance Vault] Legacy student summary could not refresh:', error); }
-        return refreshFinancialVault({ silent: true });
+        // Coalesce repeated calls from date filters, sync, payment refreshes and
+        // module navigation. The legacy summary reads several large tables.
+        if (state.legacyRunPromise) {
+          state.legacyRefreshAgain = true;
+          return state.legacyRunPromise;
+        }
+        state.legacyRunPromise = (async () => {
+          try { await originalCalculate.apply(this, arguments); }
+          catch (error) { console.error('[Gudlance Vault] Legacy student summary could not refresh:', error); }
+          const result = await refreshFinancialVault({ silent: true });
+          if (state.legacyRefreshAgain && vaultIsOpen()) {
+            state.legacyRefreshAgain = false;
+            window.setTimeout(() => {
+              if (vaultIsOpen() && typeof window.calculateVaultStats === 'function') {
+                window.calculateVaultStats();
+              }
+            }, 300);
+          }
+          return result;
+        })();
+        try {
+          return await state.legacyRunPromise;
+        } finally {
+          state.legacyRunPromise = null;
+          if (!vaultIsOpen()) state.legacyRefreshAgain = false;
+        }
       };
       wrapped.__vaultFinancialWrapped = true;
       window.calculateVaultStats = wrapped;
@@ -523,6 +544,24 @@
   }
 
   window.setVaultSessionPassword = password => { state.password = String(password || ''); };
+  window.clearVaultSessionPassword = () => {
+    state.password = '';
+    state.session = null;
+    state.result = null;
+    state.refreshAgain = false;
+    state.legacyRefreshAgain = false;
+  };
+  window.isVaultSessionAuthenticated = () => Boolean(state.password);
+  // Verify credentials on the server before revealing Vault figures. A successful
+  // read is valid even when no daily cash session has been opened yet.
+  window.verifyVaultSession = async businessDate => {
+    if (!state.password) throw new Error('Enter the Vault password to continue.');
+    const date = String(businessDate || dateRange().startDate || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Select a valid business date.');
+    const session = await sessionRequest('read', { businessDate: date });
+    state.session = session;
+    return session;
+  };
   window.refreshFinancialVault = refreshFinancialVault;
   window.scheduleVaultStatsRefresh = scheduleVaultStatsRefresh;
   injectPanel();
