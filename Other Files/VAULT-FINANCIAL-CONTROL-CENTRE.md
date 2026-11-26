@@ -47,7 +47,7 @@ Closing stores the expected amount, actual physical count, variance, calculation
 
 ## Security boundary
 
-The daily session tables have RLS enabled, no anon or authenticated table grants, and service-role-only access. The browser never receives the Supabase service-role key.
+The daily session tables have RLS enabled and forced, no anon or authenticated table grants, and narrowly scoped service-role access. The audit table is append-only for the service role. The browser never receives a Supabase secret key.
 
 The Supabase Edge Function rechecks the user's Chief Admin role and Vault password server-side before reading or writing a daily session. It uses Supabase's server-side secret environment variables by default, so no service-role key is added to Cloudflare Pages or browser code.
 
@@ -56,12 +56,12 @@ The function reads SUPABASE_URL and prefers SUPABASE_SECRET_KEYS.default, with S
 ## Deployment sequence
 
 1. Run CI and review the pull request.
-2. Apply supabase/migrations/20261126100000_vault_daily_cash_sessions.sql to the intended Supabase project.
-3. Deploy the Supabase Edge Function vault-session with verify_jwt disabled because it performs its own Chief Admin password check.
-4. Deploy the updated static app.
+2. The additive daily-session migration and privilege-hardening migration have been applied to the Gudlance Supabase project.
+3. The Supabase Edge Function vault-session is deployed with verify_jwt disabled because it performs its own Chief Admin password check.
+4. Deploy the updated static app after the PR is merged.
 5. Test with a non-production date/session first, then verify the actual cash drawer against the recorded opening float and movement list.
 
-The migration has not been applied to the live Supabase project by this code change. Existing financial data is not backfilled or rewritten.
+The additive migrations are applied to the live Supabase project. They created only the new Vault session tables, audit table and RPC, and tightened grants on those new objects. Existing financial data was not backfilled, rewritten or deleted.
 
 ## Known limitations and review rules
 
