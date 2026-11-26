@@ -45,8 +45,10 @@ test('daily cash sessions are isolated from the existing financial tables', () =
 });
 
 test('daily Vault endpoint verifies a Chief Admin and never exposes service credentials', () => {
-  const endpoint = read('netlify/functions/vault-session.js');
+  const endpoint = read('functions/api/vault-session.js');
   assert.match(endpoint, /verifyChiefAdmin/);
+  assert.match(endpoint, /export async function onRequestPost/);
+  assert.match(endpoint, /context\.env/);
   assert.match(endpoint, /role\.includes\('level 3'\)/);
   assert.match(endpoint, /crypto\.timingSafeEqual/);
   assert.match(endpoint, /SUPABASE_SERVICE_ROLE_KEY/);
