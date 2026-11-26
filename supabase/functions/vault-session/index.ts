@@ -130,9 +130,14 @@ Deno.serve(async request => {
   if (request.method !== 'POST') return respond(405, { error: 'Method Not Allowed' });
 
   try {
+    if (!String(request.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) {
+      return respond(415, { error: 'Vault requests must use JSON.' });
+    }
     const rawBody = await request.text();
     if (rawBody.length > 120000) return respond(413, { error: 'Vault request is too large.' });
-    const body = JSON.parse(rawBody || '{}');
+    let body;
+    try { body = JSON.parse(rawBody || '{}'); }
+    catch (_) { return respond(400, { error: 'Invalid JSON request.' }); }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return respond(400, { error: 'Invalid Vault request.' });
     const action = String(body.action || '').toLowerCase();
     const userId = String(body.userId || '').trim();
@@ -187,7 +192,7 @@ Deno.serve(async request => {
     if (expectedClosing === null || actualClosing === null || actualClosing < 0) {
       return respond(400, { error: 'Enter a valid actual closing cash count.' });
     }
-    const snapshot = body.snapshot && typeof body.snapshot === 'object' ? body.snapshot : {};
+    const snapshot = body.snapshot && typeof body.snapshot === 'object' && !Array.isArray(body.snapshot) ? body.snapshot : {};
     if (JSON.stringify(snapshot).length > 100000) {
       return respond(400, { error: 'The reconciliation snapshot is too large.' });
     }
