@@ -69,7 +69,7 @@ The migration has not been applied to the live Supabase project by this code cha
 ## Known limitations and review rules
 
 - A movement with no reliable date or payment method is flagged; it is not guessed into a cash or bank total.
-- The current daily close workflow records physical USD cash. ZiG expenses are shown separately; a complete ZiG opening/closing drawer workflow needs its own confirmed source and operational rules.
+- The current daily close workflow records physical USD cash. The existing Vault still shows ZiG expenses and a converted collection figure separately; a complete ZiG opening/closing drawer workflow needs its own confirmed source and operational rules.
 - Online channel totals are period movements, not bank-statement closing balances. To reconcile a bank or mobile-money account to its real-world balance, a separate opening and actual closing balance must be recorded for that account.
 - Historical student-credit liability is reconstructed from overpayment allocations and credit-backed ledger payments. Unmapped credit rows or negative reconstructed balances must be reviewed before calling the liability fully reconciled.
 - The UI marks a calculation with exceptions as requiring review, even when it can still display the classified subtotals.
@@ -78,3 +78,7 @@ The migration has not been applied to the live Supabase project by this code cha
 ## Regression coverage
 
 The Node test suite covers money rounding, mixed overpayment allocations, credit-funded payments, stock expenses, reconciled POS rows, duplicate receipt protection, inclusive dates, unclassified payment methods and payroll account allocation. Integration tests cover the script load order, migration access restrictions and server-side Chief Admin checks.
+
+
+## Existing source-table access
+The current Supabase project audit found RLS disabled on 41 existing public-schema tables, including core financial source tables. This change does not alter those policies because a blanket RLS change could break the existing custom-login application. A separate staged access-control rollout is required before claiming that existing financial records are protected from direct client/API access.
