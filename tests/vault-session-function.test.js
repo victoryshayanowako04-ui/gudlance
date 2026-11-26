@@ -24,11 +24,27 @@ function createHandler(options = {}) {
   };
   const mockFetch = async (url, init = {}) => {
     const method = String(init.method || 'GET').toUpperCase();
-    calls.push({ url: String(url), method, headers: init.headers || {} });
+    calls.push({ url: String(url), method, headers: init.headers || {}, body: init.body || null });
     const parsed = new URL(String(url));
     const table = parsed.pathname.split('/').pop();
     if (table === 'users') return new Response(JSON.stringify(users), { status: 200 });
     if (table === 'vault_daily_sessions') return new Response(JSON.stringify(sessions), { status: 200 });
+    if (table === 'record_vault_session') {
+      const rpcBody = JSON.parse(init.body || '{}');
+      return new Response(JSON.stringify({
+        id: 'session-1',
+        business_date: rpcBody.p_business_date,
+        currency: rpcBody.p_currency,
+        drawer_id: rpcBody.p_drawer_id,
+        opening_float: 100,
+        expected_closing: rpcBody.p_expected_closing,
+        actual_closing: rpcBody.p_actual_closing,
+        variance: Number(rpcBody.p_actual_closing) - Number(rpcBody.p_expected_closing),
+        closing_snapshot: rpcBody.p_snapshot,
+        status: 'CLOSED',
+        is_verified: Number(rpcBody.p_actual_closing) === Number(rpcBody.p_expected_closing) && Number(rpcBody.p_snapshot?.exceptionCount || 0) === 0
+      }), { status: 200 });
+    }
     if (Object.prototype.hasOwnProperty.call(sources, table)) {
       return new Response(JSON.stringify(sources[table] || []), { status: 200 });
     }
@@ -169,4 +185,52 @@ test('Vault financial calculations run server-side after Chief Admin verificatio
   assert.equal(payload.result.movements.length, 1);
   assert.ok(calls.every(call => call.method === 'GET'));
   assert.ok(calls.some(call => call.url.includes('/rest/v1/student_ledger?')));
+});
+
+
+test('server derives expected closing and the audit snapshot instead of trusting the browser', async () => {
+  const { handler, calls } = createHandler({
+    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }],
+    sessions: [{
+      id: 'session-1', business_date: '2026-11-24', currency: 'USD',
+      drawer_id: 'main', opening_float: 100, status: 'OPEN'
+    }],
+    sources: {
+      student_ledger: [{
+        id: 'LEDGER-1', student_id: 'STU-1', date: '2026-11-24', type: 'payment',
+        amount: 25, method: 'Cash', status: 'ACTIVE', receipt_no: 'R-1'
+      }],
+      transactions: [], expenses: [], payroll_history: [], payments: []
+    }
+  });
+  const response = await handler(post(JSON.stringify({
+    action: 'close', userId: 'chief-1', password: 'correct-pass',
+    businessDate: '2026-11-24', currency: 'USD',
+    actualClosing: 124.99,
+    expectedClosing: 99999,
+    snapshot: { movementCount: 0, cashInCents: 0, exceptionCount: 0 }
+  })));
+  assert.equal(response.status, 200);
+  const rpcCall = calls.find(call => call.url.includes('/rpc/record_vault_session'));
+  assert.ok(rpcCall);
+  const rpcBody = JSON.parse(rpcCall.body);
+  assert.equal(rpcBody.p_expected_closing, 125);
+  assert.equal(rpcBody.p_actual_closing, 124.99);
+  assert.equal(rpcBody.p_snapshot.movementCount, 1);
+  assert.equal(rpcBody.p_snapshot.cashInCents, 2500);
+  assert.equal(rpcBody.p_snapshot.exceptionCount, 0);
+});
+
+test('Vault prefers the scoped Supabase secret over the legacy service role key', async () => {
+  const { handler, calls } = createHandler({
+    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }],
+    env: { SUPABASE_SECRET_KEYS: JSON.stringify({ default: 'sb_secret_scoped_key' }) }
+  });
+  const response = await handler(post(JSON.stringify({
+    action: 'read', userId: 'chief-1', password: 'correct-pass',
+    businessDate: '2026-11-24', currency: 'USD'
+  })));
+  assert.equal(response.status, 200);
+  assert.ok(calls.every(call => call.headers.apikey === 'sb_secret_scoped_key'));
+  assert.equal(calls[0].headers.Authorization, undefined);
 });
