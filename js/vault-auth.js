@@ -5,7 +5,7 @@
   // cannot open multiple prompts or launch concurrent authentication requests.
   let unlockPromise = null;
 
-  window.unlockAdminFinance = async function () {
+  window.openSecureVault = async function () {
     if (unlockPromise) return unlockPromise;
 
     const user = window.currentUser;
