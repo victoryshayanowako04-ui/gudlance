@@ -50,8 +50,9 @@ test('daily cash sessions are isolated from the existing financial tables', () =
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.record_vault_session/);
 });
 
-test('daily Vault endpoint verifies a Chief Admin and never exposes service credentials', () => {
+test('Vault calculations run through the authenticated server function, not browser table reads', () => {
   const endpoint = read('supabase/functions/vault-session/index.ts');
+  const engine = read('js/vault-financial-engine.js');
   assert.match(endpoint, /verifyChiefAdmin/);
   assert.match(endpoint, /Deno\.serve/);
   assert.match(endpoint, /Deno\.env\.get\('SUPABASE_URL'\)/);
@@ -59,14 +60,29 @@ test('daily Vault endpoint verifies a Chief Admin and never exposes service cred
   assert.match(endpoint, /safeEqual/);
   assert.match(endpoint, /SUPABASE_SECRET_KEYS/);
   assert.match(endpoint, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(endpoint, /action === 'calculate'/);
+  assert.match(endpoint, /fetchAllVaultRows/);
+  assert.match(endpoint, /globalThis\.GudlanceVaultCore/);
   assert.match(endpoint, /record_vault_session/);
   assert.match(endpoint, /isAllowedOrigin/);
   assert.match(endpoint, /gudlance\.pages\.dev/);
   assert.match(endpoint, /rawBody.length > 120000/);
   assert.match(endpoint, /Unsupported Vault currency/);
+  assert.match(engine, /sessionRequest\('calculate'/);
+  assert.doesNotMatch(engine, /supabaseClient\.from\(/);
+  assert.doesNotMatch(engine, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(engine, /localStorage\.setItem/);
   assert.match(read('supabase/config.toml'), /verify_jwt = false/);
-  assert.doesNotMatch(read('js/vault-financial-engine.js'), /SUPABASE_SERVICE_ROLE_KEY/);
-  assert.doesNotMatch(read('js/vault-financial-engine.js'), /localStorage\.setItem/);
+  assert.equal(read('js/vault-financial-core.js'), read('supabase/functions/vault-session/vault-financial-core.js'));
+});
+
+test('the follow-up session migration adds verification state without rewriting finance records', () => {
+  const migration = read('supabase/migrations/20261126200000_vault_session_verification_state.sql');
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS is_verified/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS exception_count/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS movement_count/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.record_vault_session/);
+  assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE|DELETE FROM/i);
 });
 
 test('service worker caches the new Vault modules under a new cache version', () => {
