@@ -121,3 +121,30 @@ test('unpaid payroll is not deducted from any account', () => {
   assert.equal(result.totals.cashOutCents, 0);
   assert.ok(result.exceptions.some(exception => exception.code === 'PAYROLL_NOT_CONFIRMED_PAID'));
 });
+
+
+test('24 November 2026 reconciles cash and EcoCash independently', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [
+      { id: 'CASH-NORMAL', date: '2026-11-24', type: 'payment', amount: 708, method: 'Cash', status: 'ACTIVE', receipt_no: 'C1' },
+      { id: 'CASH-OVER', date: '2026-11-24', type: 'overpayment', amount: 50, method: 'Cash', status: 'ACTIVE', receipt_no: 'C2' },
+      { id: 'ECO-NORMAL', date: '2026-11-24', type: 'payment', amount: 138, method: 'EcoCash', status: 'ACTIVE', receipt_no: 'E1' },
+      { id: 'ECO-OVER', date: '2026-11-24', type: 'overpayment', amount: 85, method: 'EcoCash', status: 'ACTIVE', receipt_no: 'E2' }
+    ],
+    expenses: [
+      { id: 'CASH-EXP', date: '2026-11-24', amount: 605, payment_method: 'Cash', status: 'ACTIVE' },
+      { id: 'ECO-EXP', date: '2026-11-24', amount: 610, payment_method: 'EcoCash', status: 'ACTIVE' }
+    ]
+  });
+  assert.equal(result.totals.collectionsCents, 98100);
+  assert.equal(result.totals.cashInCents, 75800);
+  assert.equal(result.totals.onlineInCents, 22300);
+  assert.equal(result.totals.expensesCents, 121500);
+  assert.equal(result.totals.cashOutCents, 60500);
+  assert.equal(result.totals.onlineOutCents, 61000);
+  assert.equal(result.totals.netCashCents, 15300);
+  assert.equal(result.totals.netOnlineCents, -38700);
+  assert.equal(result.totals.overpaymentsCents, 13500);
+  assert.equal(result.exceptions.length, 0);
+});
