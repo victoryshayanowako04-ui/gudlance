@@ -309,7 +309,7 @@
       const category = categoryText.includes('overpayment')
         ? 'overpayment'
         : categoryFor(categoryText, '');
-      if (account === 'credit') {
+      if (classifiedAccount === 'credit') {
         addException('PAYMENT_CREDIT_SOURCE', date, reference, 'A paid payment row is marked as student credit; confirm its actual tender before including it as cash received.', amountCents);
         return;
       }
@@ -423,6 +423,9 @@
       const account = classifyMethod(methodLabel);
       if (currency === 'ZIG' || currency === 'ZWG') {
         result.totals.zigExpenseCents += amountCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          'This expense is recorded in ZiG and is kept out of USD Net Cash. A separate ZiG daily opening and closing count is required.',
+          amountCents, 'ZiG');
         return;
       }
       if (account === 'credit') {
