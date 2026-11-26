@@ -216,9 +216,10 @@ async function calculateVaultReport(startDate, endDate) {
   const [ledger, transactions, expenses, payroll, payments] = await Promise.all([
     fetchAllVaultRows('student_ledger', ledgerFilters),
     fetchAllVaultRows('transactions', dateRangeFilters('date', startDate, endDate)),
-    // Expense dates are stored both in the date column and inside legacy JSON data.
-    // Fetch this small source in full so neither representation is accidentally omitted.
-    fetchAllVaultRows('expenses'),
+    // Keep date-filtered expenses plus undated legacy rows whose date may live
+    // inside the JSON data column. This avoids rescanning the entire expense history
+    // for a single-day Vault view without silently dropping older legacy records.
+    fetchAllVaultRows('expenses', dateRangeFilters('date', startDate, endDate)),
     fetchAllVaultRows('payroll_history', dateRangeFilters('payment_date', startDate, endDate)),
     fetchAllVaultRows('payments', dateRangeFilters('date', startDate, endDate))
   ]);
