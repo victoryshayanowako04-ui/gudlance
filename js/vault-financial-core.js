@@ -274,8 +274,12 @@
       const studentId = String(payment.student_id || '').trim();
       const receiptKey = String(reference || '').toUpperCase();
       const studentKey = receiptKey + '|' + studentId.toUpperCase();
+      if (receiptKey && walkInPosReceipts.has(receiptKey)) {
+        if (studentId) addException('PAYMENT_POS_REFERENCE_COLLISION', date, reference, 'The same receipt is linked to both a payment row and a walk-in POS sale. The POS record is counted once; review the student reference.', Math.abs(cents(payment.amount)));
+        return;
+      }
       if ((receiptKey && studentId && ledgerReceiptStudentKeys.has(studentKey)) ||
-          (receiptKey && !studentId && (ledgerReceipts.has(receiptKey) || walkInPosReceipts.has(receiptKey)))) return;
+          (receiptKey && !studentId && ledgerReceipts.has(receiptKey))) return;
 
       const amountCents = Math.abs(cents(payment.amount));
       if (!withinPeriod(date, startDate, endDate)) {
