@@ -86,6 +86,7 @@
       unclassifiedOutCents: 0,
       overpaymentsCents: 0,
       creditLiabilityCents: 0,
+      zigTenderCents: 0,
       zigExpenseCents: 0
     },
     accounts: {
@@ -123,10 +124,10 @@
     const seen = new Set();
     const asOfDate = endDate || isoDate(source.today) || harareToday();
 
-    const addException = (code, date, ref, description, amountCents) => {
+    const addException = (code, date, ref, description, amountCents, currency = 'USD') => {
       result.exceptions.push({
         code, date: date || 'Date not recorded', ref: String(ref || 'No reference'),
-        description: String(description || code), amountCents: Math.abs(amountCents || 0)
+        description: String(description || code), amountCents: Math.abs(amountCents || 0), currency
       });
     };
     const addMovement = movement => {
@@ -222,7 +223,9 @@
       if (amountCents <= 0) return;
 
       const methodLabel = row.method || row.payment_method || '';
-      const account = classifyMethod(methodLabel);
+      const classifiedAccount = classifyMethod(methodLabel);
+      const rowZigCents = Math.abs(cents(row.zig));
+      const account = rowZigCents > 0 ? 'unclassified' : classifiedAccount;
       const creditBacked = row.is_credit_backed === true || String(row.is_credit_backed).toLowerCase() === 'true' ||
         String(methodLabel).toLowerCase().includes('advance credit') ||
         String(row.description || '').toLowerCase().includes('paid via advance credit');
@@ -230,7 +233,16 @@
       const actualReceived = Math.max(0, amountCents - (creditUsed || (creditBacked ? amountCents : 0)));
       if (actualReceived <= 0) return;
       if (account === 'credit') return;
-      if (account === 'unclassified') {
+      if (rowZigCents > 0) {
+        result.totals.zigTenderCents += rowZigCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          'This ledger entry contains actual ZiG tender. ZiG is kept separate from USD and needs its own daily opening and closing count.',
+          rowZigCents, 'ZiG');
+        addException('ZIG_USD_SPLIT_REQUIRES_RATE', date, reference,
+          'The legacy ledger stores a USD-equivalent amount but not the historical exchange rate needed to identify any USD component. This receipt is held in Unclassified and excluded from physical USD Net Cash.',
+          actualReceived, 'USD');
+      }
+      if (classifiedAccount === 'unclassified') {
         addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Student payment method is missing or cannot be safely classified.', actualReceived);
       }
       const rawBreakdown = Array.isArray(row.breakdown) && row.breakdown.length
@@ -289,17 +301,28 @@
       if (amountCents <= 0) return;
 
       const methodLabel = payment.method || '';
-      const account = classifyMethod(methodLabel);
+      const classifiedAccount = classifyMethod(methodLabel);
+      const paymentZigCents = Math.abs(cents(payment.zig));
+      const account = paymentZigCents > 0 ? 'unclassified' : classifiedAccount;
       const description = payment.notes || payment.category || 'Paid receipt missing from student ledger';
       const categoryText = String(payment.category || payment.notes || '').toLowerCase();
       const category = categoryText.includes('overpayment')
         ? 'overpayment'
         : categoryFor(categoryText, '');
-      if (account === 'credit') {
+      if (classifiedAccount === 'credit') {
         addException('PAYMENT_CREDIT_SOURCE', date, reference, 'A paid payment row is marked as student credit; confirm its actual tender before including it as cash received.', amountCents);
         return;
       }
-      if (account === 'unclassified') {
+      if (paymentZigCents > 0) {
+        result.totals.zigTenderCents += paymentZigCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          'This fallback receipt contains actual ZiG tender. ZiG is kept separate from USD and needs its own daily opening and closing count.',
+          paymentZigCents, 'ZiG');
+        addException('ZIG_USD_SPLIT_REQUIRES_RATE', date, reference,
+          'The payment fallback stores a USD-equivalent amount but not the historical exchange rate needed to identify any USD component. It is held in Unclassified and excluded from physical USD Net Cash.',
+          amountCents, 'USD');
+      }
+      if (classifiedAccount === 'unclassified') {
         addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Fallback receipt payment method is missing or cannot be safely classified.', amountCents);
       }
       addException('PAYMENT_MISSING_LEDGER', date, reference, 'A paid receipt exists in payments but has no matching student ledger entry. It is included once as a fallback and needs review.', amountCents);
@@ -332,13 +355,14 @@
       const account = classifyMethod(methodLabel);
       const hasUsdPaid = sale.usdpaid !== null && sale.usdpaid !== undefined;
       const totalCents = Math.max(0, cents(sale.total ?? sale.amount));
+      const posZigCents = Math.abs(cents(sale.zigpaid));
       const creditApplied = Math.max(0, cents(sale.credit_applied_amount));
       const creditBacked = sale.is_credit_backed === true || String(sale.is_credit_backed).toLowerCase() === 'true';
       const actualReceived = account === 'credit'
         ? 0
         : (hasUsdPaid
           ? Math.max(0, cents(sale.usdpaid))
-          : Math.max(0, totalCents - Math.max(creditApplied, creditBacked ? totalCents : 0)));
+          : (posZigCents > 0 ? 0 : Math.max(0, totalCents - Math.max(creditApplied, creditBacked ? totalCents : 0))));
       if (account === 'credit' && hasUsdPaid && cents(sale.usdpaid) > 0) {
         addException('POS_CREDIT_METHOD_WITH_CASH', date, reference, 'A POS row is marked as credit but also records USD tender. Confirm the actual payment channel.', cents(sale.usdpaid));
         return;
@@ -346,6 +370,19 @@
       if (creditApplied > totalCents && !hasUsdPaid) {
         addException('POS_CREDIT_EXCEEDS_TOTAL', date, reference, 'Credit applied exceeds the recorded POS total.', creditApplied - totalCents);
         return;
+      }
+      if (posZigCents > 0) {
+        result.totals.zigTenderCents += posZigCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          hasUsdPaid
+            ? 'POS records ZiG tender separately from its USD tender. The USD amount is counted accurately, but ZiG needs its own daily opening and closing count.'
+            : 'POS records ZiG tender but has no separate USD-paid amount. The USD-equivalent total is not treated as physical USD cash.',
+          posZigCents, 'ZiG');
+        if (!hasUsdPaid) {
+          addException('POS_USD_COMPONENT_UNKNOWN', date, reference,
+            'The POS total is not a reliable USD cash amount when ZiG tender exists and usdpaid is missing.',
+            totalCents, 'USD');
+        }
       }
       if (actualReceived <= 0) return;
       if (account === 'unclassified') addException('UNKNOWN_POS_METHOD', date, reference, 'Walk-in POS payment method is missing or cannot be classified.', actualReceived);
@@ -386,6 +423,9 @@
       const account = classifyMethod(methodLabel);
       if (currency === 'ZIG' || currency === 'ZWG') {
         result.totals.zigExpenseCents += amountCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          'This expense is recorded in ZiG and is kept out of USD Net Cash. A separate ZiG daily opening and closing count is required.',
+          amountCents, 'ZiG');
         return;
       }
       if (account === 'credit') {
