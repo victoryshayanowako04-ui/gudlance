@@ -223,7 +223,9 @@
       if (amountCents <= 0) return;
 
       const methodLabel = row.method || row.payment_method || '';
-      const account = classifyMethod(methodLabel);
+      const classifiedAccount = classifyMethod(methodLabel);
+      const rowZigCents = Math.abs(cents(row.zig));
+      const account = rowZigCents > 0 ? 'unclassified' : classifiedAccount;
       const creditBacked = row.is_credit_backed === true || String(row.is_credit_backed).toLowerCase() === 'true' ||
         String(methodLabel).toLowerCase().includes('advance credit') ||
         String(row.description || '').toLowerCase().includes('paid via advance credit');
@@ -231,7 +233,16 @@
       const actualReceived = Math.max(0, amountCents - (creditUsed || (creditBacked ? amountCents : 0)));
       if (actualReceived <= 0) return;
       if (account === 'credit') return;
-      if (account === 'unclassified') {
+      if (rowZigCents > 0) {
+        result.totals.zigTenderCents += rowZigCents;
+        addException('ZIG_SESSION_NOT_RECONCILED', date, reference,
+          'This ledger entry contains actual ZiG tender. ZiG is kept separate from USD and needs its own daily opening and closing count.',
+          rowZigCents, 'ZiG');
+        addException('ZIG_USD_SPLIT_REQUIRES_RATE', date, reference,
+          'The legacy ledger stores a USD-equivalent amount but not the historical exchange rate needed to identify any USD component. This receipt is held in Unclassified and excluded from physical USD Net Cash.',
+          actualReceived, 'USD');
+      }
+      if (classifiedAccount === 'unclassified') {
         addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Student payment method is missing or cannot be safely classified.', actualReceived);
       }
       const rawBreakdown = Array.isArray(row.breakdown) && row.breakdown.length
