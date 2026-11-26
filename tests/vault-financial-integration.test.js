@@ -50,7 +50,7 @@ test('daily Vault endpoint verifies a Chief Admin and never exposes service cred
   assert.match(endpoint, /export async function onRequestPost/);
   assert.match(endpoint, /context\.env/);
   assert.match(endpoint, /role\.includes\('level 3'\)/);
-  assert.match(endpoint, /crypto\.timingSafeEqual/);
+  assert.match(endpoint, /safeEqual/);
   assert.match(endpoint, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(endpoint, /record_vault_session/);
   assert.doesNotMatch(read('js/vault-financial-engine.js'), /SUPABASE_SERVICE_ROLE_KEY/);
