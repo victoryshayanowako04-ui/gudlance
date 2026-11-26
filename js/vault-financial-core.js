@@ -222,7 +222,7 @@
         const description = line.desc || line.description || row.description || 'Student payment';
         const category = categoryFor(description, type);
         const lineMovement = {
-          source: 'student_ledger', sourceId: String(row.id || reference || ''),
+          source: 'student_ledger', sourceId: String(row.id || reference || '') + ':' + index,
           date, reference: String(reference || 'No receipt'),
           description: String(description), studentId: String(row.student_id || ''),
           method: String(methodLabel || 'Not recorded'), account: account === 'credit' ? 'unclassified' : account,
