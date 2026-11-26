@@ -127,3 +127,10 @@ test('the browser submits only the physical count when closing a day', () => {
   assert.doesNotMatch(engine, /expectedClosing:\s*expected/);
   assert.doesNotMatch(engine, /snapshot:\s*\{/);
 });
+
+
+test('system discount allocations have a separate non-cash Vault total', () => {
+  const engine = read('js/vault-financial-engine.js');
+  assert.match(engine, /vcpNonCashAdjustments/);
+  assert.match(engine, /totals\.nonCashAdjustmentsCents/);
+});
