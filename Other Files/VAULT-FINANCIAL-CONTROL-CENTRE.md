@@ -32,6 +32,7 @@ Reconciled POS rows remain part of historical reports. Reconciliation is a statu
 - Payroll reduces the account indicated by payment_method, not automatically physical cash.
 - Missing/unknown methods are reported as unclassified and are never assumed to be cash.
 - ZiG is kept separate from USD and is not added to USD cash.
+- Server reads are date-scoped for student ledger movements, POS, payments and payroll. The ledger query retains prior payment/overpayment records through the selected end date because outstanding student credit is an as-of-date liability. Expense rows are still read in full because older records store their business date inside JSON data; the engine applies the selected period consistently. Undated source rows remain visible as exceptions rather than being silently filtered out.
 
 ## Daily cash session
 
@@ -43,7 +44,9 @@ Expected closing cash:
 
     opening float + cash inflows - cash outflows
 
-Closing stores the expected amount, actual physical count, variance, movement references, exception references and an append-only audit event. A day is marked fully reconciled only when the variance is zero and there are no calculation exceptions. A non-zero variance is recorded, not automatically corrected.
+Closing stores the expected amount, actual physical count, variance, movement references, exception references and an append-only audit event. The browser submits only the physical count. The Edge Function reads the saved opening float, recalculates the selected business date from the financial sources and builds the closing snapshot on the server; browser-supplied expected totals or snapshots are not trusted. A day is marked fully reconciled only when the variance is zero and there are no calculation exceptions. A non-zero variance is recorded, not automatically corrected.
+
+When a closed day is opened again, the current calculation is compared with the saved closing snapshot. If a backdated receipt, expense, reversal or other financial change alters the movement count or totals, the UI marks the close as having changed activity and requires authorised review. The original closing record is not silently rewritten.
 
 ## Security boundary
 
@@ -70,6 +73,8 @@ The additive migrations are applied to the live Supabase project. They created o
 - Online channel totals are period movements, not bank-statement closing balances. To reconcile a bank or mobile-money account to its real-world balance, a separate opening and actual closing balance must be recorded for that account.
 - Historical student-credit liability is reconstructed from explicit overpayment entries and reduced by advance-credit settlements. Credit-allocation reversals are not treated as new overpayments. Unmapped credit rows or negative reconstructed balances must be reviewed before calling the liability fully reconciled.
 - The UI marks a calculation with exceptions as requiring review, even when it can still display the classified subtotals.
+- The Control Centre is a school-wide financial view for the selected dates. The existing class and student filters continue to apply to the legacy student summary below it; they do not narrow school-wide expenses or payroll. Filter typing is debounced to avoid recalculating on every keystroke.
+- The existing billed, debt, discount and waiver summary is still refreshed by its original calculator before the audited Control Centre overrides cash totals. This preserves the established student-summary behaviour while making the cash figures authoritative.
 - No legacy data is silently edited to repair historical gaps.
 
 ## Verified historical baseline (24 November 2026)
@@ -103,7 +108,7 @@ The live database currently has zero active ZiG tender rows, zero active POS ZiG
 
 ## Regression coverage
 
-The Node test suite covers money rounding, mixed overpayment allocations, advance-credit settlements, mixed cash/credit allocation, missing-ledger receipt fallback, walk-in POS de-duplication, ZiG/USD separation, stock expenses, reconciled POS rows, inclusive dates, unclassified payment methods and payroll account allocation. Integration tests cover the script load order, migration access restrictions and server-side Chief Admin checks.
+The Node test suite covers money rounding, mixed overpayment allocations, advance-credit settlements, mixed cash/credit allocation, missing-ledger receipt fallback, walk-in POS de-duplication, ZiG/USD separation, stock expenses, reconciled POS rows, inclusive dates, unclassified payment methods and payroll account allocation. Integration tests cover the script load order, migration access restrictions, server-side Chief Admin checks, preservation of the legacy student summary, debounced filters, post-close activity detection, secret-key preference and server-authoritative closing.
 
 
 ## Existing source-table access
