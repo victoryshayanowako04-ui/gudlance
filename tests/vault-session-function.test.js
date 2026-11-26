@@ -7,7 +7,8 @@ const vm = require('node:vm');
 const source = fs.readFileSync(
   path.join(__dirname, '../supabase/functions/vault-session/index.ts'),
   'utf8'
-);
+).replace(/^import ['\"]\.\/vault-financial-core\.js['\"];\\s*/, '');
+const vaultCore = require('../js/vault-financial-core');
 const allowedOrigin = 'https://feature-vault-financial-reco.gudlance.pages.dev';
 
 function createHandler(options = {}) {
@@ -15,6 +16,7 @@ function createHandler(options = {}) {
   const calls = [];
   const users = options.users || [];
   const sessions = options.sessions || [];
+  const sources = options.sources || {};
   const env = {
     SUPABASE_URL: 'https://example.supabase.co',
     SUPABASE_SERVICE_ROLE_KEY: 'test-server-key',
@@ -23,11 +25,12 @@ function createHandler(options = {}) {
   const mockFetch = async (url, init = {}) => {
     const method = String(init.method || 'GET').toUpperCase();
     calls.push({ url: String(url), method, headers: init.headers || {} });
-    if (String(url).includes('/rest/v1/users?')) {
-      return new Response(JSON.stringify(users), { status: 200 });
-    }
-    if (String(url).includes('/rest/v1/vault_daily_sessions?')) {
-      return new Response(JSON.stringify(sessions), { status: 200 });
+    const parsed = new URL(String(url));
+    const table = parsed.pathname.split('/').pop();
+    if (table === 'users') return new Response(JSON.stringify(users), { status: 200 });
+    if (table === 'vault_daily_sessions') return new Response(JSON.stringify(sessions), { status: 200 });
+    if (Object.prototype.hasOwnProperty.call(sources, table)) {
+      return new Response(JSON.stringify(sources[table] || []), { status: 200 });
     }
     throw new Error('Unexpected Vault test request: ' + url);
   };
@@ -36,9 +39,11 @@ function createHandler(options = {}) {
       env: { get: name => env[name] || '' },
       serve: callback => { handler = callback; }
     },
+    GudlanceVaultCore: vaultCore,
     fetch: mockFetch,
     TextEncoder,
     URL,
+    URLSearchParams,
     Response,
     Request,
     Headers,
@@ -136,4 +141,32 @@ test('Vault rejects invalid dates and unsupported currencies before authenticati
   })));
   assert.equal(invalidCurrency.status, 400);
   assert.equal(calls.length, 0);
+});
+
+
+test('Vault financial calculations run server-side after Chief Admin verification', async () => {
+  const { handler, calls } = createHandler({
+    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }],
+    sources: {
+      student_ledger: [{
+        id: 'LEDGER-1', student_id: 'STU-1', date: '2026-11-24', type: 'payment',
+        amount: 25, method: 'Cash', status: 'ACTIVE', receipt_no: 'R-1'
+      }],
+      transactions: [],
+      expenses: [],
+      payroll_history: [],
+      payments: []
+    }
+  });
+  const response = await handler(post(JSON.stringify({
+    action: 'calculate', userId: 'chief-1', password: 'correct-pass',
+    startDate: '2026-11-24', endDate: '2026-11-24'
+  })));
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.result.totals.cashInCents, 2500);
+  assert.equal(payload.result.totals.collectionsCents, 2500);
+  assert.equal(payload.result.movements.length, 1);
+  assert.ok(calls.every(call => call.method === 'GET'));
+  assert.ok(calls.some(call => call.url.includes('/rest/v1/student_ledger?')));
 });
