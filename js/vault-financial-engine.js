@@ -467,27 +467,6 @@
       window.showVaultBreakdown = wrappedShow;
     }
 
-    const originalUnlock = window.unlockAdminFinance;
-    if (typeof originalUnlock === 'function' && !originalUnlock.__vaultFinancialWrapped) {
-      const wrappedUnlock = async function () {
-        const promptFunction = window.prompt;
-        window.prompt = function (message) {
-          const answer = promptFunction.apply(window, arguments);
-          if (String(message || '').toLowerCase().includes('vault password')) state.password = String(answer || '');
-          return answer;
-        };
-        try {
-          const result = await originalUnlock.apply(this, arguments);
-          if (!vaultIsOpen()) state.password = '';
-          return result;
-        } finally {
-          window.prompt = promptFunction;
-        }
-      };
-      wrappedUnlock.__vaultFinancialWrapped = true;
-      window.unlockAdminFinance = wrappedUnlock;
-    }
-
     const originalLock = window.lockAdminFinance;
     if (typeof originalLock === 'function' && !originalLock.__vaultFinancialWrapped) {
       const wrappedLock = function () {
@@ -532,6 +511,7 @@
     }
   }
 
+  window.setVaultSessionPassword = password => { state.password = String(password || ''); };
   window.refreshFinancialVault = refreshFinancialVault;
   injectPanel();
   installLegacyIntegration();
