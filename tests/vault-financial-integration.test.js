@@ -22,13 +22,14 @@ test('the Vault calculator includes stock purchases and keeps reconciled POS his
   assert.doesNotMatch(vault, /sale\.reconciled === true\) return/);
   assert.match(vault, /sale\.usdpaid \?\? sale\.total \?\? sale\.amount/);
   assert.match(vault, /expData\.method \|\| 'Not recorded'/);
+  assert.match(app, /window\.setVaultSessionPassword\(password\)/);
 });
 
 test('the audited Vault modules load after the existing application script', () => {
   const html = read('index.html');
   const appIndex = html.indexOf('app.js?v=46');
   const coreIndex = html.indexOf('js/vault-financial-core.js?v=1');
-  const engineIndex = html.indexOf('js/vault-financial-engine.js?v=2');
+  const engineIndex = html.indexOf('js/vault-financial-engine.js?v=3');
   assert.ok(appIndex >= 0 && coreIndex > appIndex && engineIndex > coreIndex);
 });
 
@@ -61,7 +62,7 @@ test('daily Vault endpoint verifies a Chief Admin and never exposes service cred
 
 test('service worker caches the new Vault modules under a new cache version', () => {
   const worker = read('service-worker.js');
-  assert.match(worker, /haven-school-v6/);
+  assert.match(worker, /haven-school-v7/);
   assert.match(worker, /vault-financial-core\.js/);
   assert.match(worker, /vault-financial-engine\.js/);
 });
