@@ -48,7 +48,9 @@
   };
   const categoryFor = (description, rowType) => {
     const text = String(description || '').toLowerCase();
-    if (rowType === 'overpayment' || text.includes('overpayment') || text.includes('account credit') || text.includes('advance credit')) return 'overpayment';
+    if (rowType === 'overpayment' || text.includes('overpayment')) return 'overpayment';
+    if (text.includes('credit allocation (reversal)')) return 'credit_adjustment';
+    if (text.includes('covered by advance credit') || text.includes('paid via advance credit')) return 'credit_application';
     if (text.includes('shop') || text.includes('uniform') || text.includes('tracksuit') || text.includes('stock purchase')) return 'shop';
     if (text.includes('event') || text.includes('trip') || text.includes('graduation') || text.includes('pizza')) return 'event';
     if (text.includes('payroll') || text.includes('salary')) return 'payroll';
@@ -187,7 +189,10 @@
         } else if (type === 'payment') {
           const liabilityWeight = liabilityBreakdown.reduce((sum, line) => {
             const description = String(line.desc || line.description || row.description || '').toLowerCase();
-            return sum + (description.includes('overpayment') || description.includes('account credit') || description.includes('advance credit')
+            const isCreditApplication = description.includes('covered by advance credit') ||
+              description.includes('paid via advance credit') || description.includes('credit allocation (reversal)') ||
+              description.includes('credit applied') || description.includes('credit used');
+            return sum + (description.includes('overpayment') && !isCreditApplication
               ? Math.max(0, cents(line.amt ?? line.amount)) : 0);
           }, 0);
           const allWeights = liabilityBreakdown.reduce((sum, line) => sum + Math.max(0, cents(line.amt ?? line.amount)), 0);
@@ -228,9 +233,17 @@
       if (account === 'unclassified') {
         addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Student payment method is missing or cannot be safely classified.', actualReceived);
       }
-      const breakdown = Array.isArray(row.breakdown) && row.breakdown.length
+      const rawBreakdown = Array.isArray(row.breakdown) && row.breakdown.length
         ? row.breakdown
         : [{ amt: amountCents / 100, desc: row.description || 'Student payment' }];
+      const cashBreakdown = rawBreakdown.filter(line => {
+        const description = String(line.desc || line.description || row.description || '').toLowerCase();
+        return !(description.includes('covered by advance credit') ||
+          description.includes('paid via advance credit') ||
+          description.includes('credit applied') ||
+          description.includes('credit used'));
+      });
+      const breakdown = cashBreakdown.length ? cashBreakdown : [{ amt: actualReceived / 100, desc: row.description || 'Student payment' }];
       const rawWeights = breakdown.map(line => Math.max(0, cents(line.amt ?? line.amount)));
       const weightTotal = rawWeights.reduce((sum, value) => sum + value, 0);
       let assigned = 0;
