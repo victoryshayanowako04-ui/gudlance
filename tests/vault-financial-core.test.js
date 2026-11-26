@@ -266,3 +266,63 @@ test('credit allocation reversals are not reported as new overpayments', () => {
   assert.equal(result.movements.length, 2);
   assert.equal(result.movements.find(item => item.description.includes('Credit Allocation')).category, 'credit_adjustment');
 });
+
+
+test('legacy ZiG ledger tender is not misreported as physical USD cash', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [{
+      id: 'ZIG-L1', student_id: 'STU-Z1', date: '2026-11-24', type: 'payment',
+      amount: 20, zig: 1000, method: 'Cash', status: 'ACTIVE', receipt_no: 'ZIG-R1'
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 2000);
+  assert.equal(result.totals.cashInCents, 0);
+  assert.equal(result.totals.unclassifiedInCents, 2000);
+  assert.equal(result.totals.zigTenderCents, 100000);
+  assert.ok(result.exceptions.some(item => item.code === 'ZIG_USD_SPLIT_REQUIRES_RATE' && item.currency === 'USD'));
+  assert.ok(result.exceptions.some(item => item.code === 'ZIG_SESSION_NOT_RECONCILED' && item.currency === 'ZiG'));
+});
+
+test('POS keeps known USD tender separate from actual ZiG tender', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    transactions: [{
+      id: 'POS-Z1', student_id: 'WALK-IN', date: '2026-11-24', status: 'ACTIVE',
+      receipt_no: 'POS-ZIG-1', paymentmethod: 'Cash', usdpaid: 10, zigpaid: 1000, total: 20
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 1000);
+  assert.equal(result.totals.cashInCents, 1000);
+  assert.equal(result.totals.zigTenderCents, 100000);
+  assert.ok(result.exceptions.some(item => item.code === 'ZIG_SESSION_NOT_RECONCILED' && item.currency === 'ZiG'));
+  assert.equal(result.exceptions.some(item => item.code === 'POS_USD_COMPONENT_UNKNOWN'), false);
+});
+
+test('ZiG expenses do not reduce the USD cash drawer', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    expenses: [{
+      id: 'EXP-Z1', date: '2026-11-24', amount: 1000, payment_method: 'Cash',
+      status: 'ACTIVE', data: { currency: 'ZiG', date: '2026-11-24' }
+    }]
+  });
+  assert.equal(result.totals.expensesCents, 0);
+  assert.equal(result.totals.cashOutCents, 0);
+  assert.equal(result.totals.zigExpenseCents, 100000);
+  assert.ok(result.exceptions.some(item => item.code === 'ZIG_SESSION_NOT_RECONCILED' && item.currency === 'ZiG'));
+});
+
+test('ZiG payment fallback remains unclassified for USD cash without a historical rate', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    payments: [{
+      id: 'PAY-Z1', student_id: 'STU-Z2', date: '2026-11-24', receipt_no: 'PAY-ZIG-1',
+      amount: 20, zig: 1000, method: 'Cash', status: 'PAID', category: 'Tuition'
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 2000);
+  assert.equal(result.totals.cashInCents, 0);
+  assert.equal(result.totals.zigTenderCents, 100000);
+  assert.ok(result.exceptions.some(item => item.code === 'ZIG_USD_SPLIT_REQUIRES_RATE'));
+});
