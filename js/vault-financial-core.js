@@ -159,7 +159,24 @@
       if (reference && ['payment', 'overpayment'].includes(type)) ledgerReceipts.add(String(reference).toUpperCase());
 
       if (date && activeDate(date, asOfDate)) {
-        if (type === 'overpayment') result.totals.creditLiabilityCents += amountCents;
+        const liabilityBreakdown = Array.isArray(row.breakdown) && row.breakdown.length
+          ? row.breakdown
+          : [{ amt: amountCents / 100, desc: row.description || '' }];
+        if (type === 'overpayment') {
+          result.totals.creditLiabilityCents += amountCents;
+        } else if (type === 'payment') {
+          const liabilityWeight = liabilityBreakdown.reduce((sum, line) => {
+            const description = String(line.desc || line.description || row.description || '').toLowerCase();
+            return sum + (description.includes('overpayment') || description.includes('account credit') || description.includes('advance credit')
+              ? Math.max(0, cents(line.amt ?? line.amount)) : 0);
+          }, 0);
+          const allWeights = liabilityBreakdown.reduce((sum, line) => sum + Math.max(0, cents(line.amt ?? line.amount)), 0);
+          if (liabilityWeight > 0) {
+            result.totals.creditLiabilityCents += allWeights > 0
+              ? Math.round(amountCents * liabilityWeight / allWeights)
+              : liabilityWeight;
+          }
+        }
         const creditBacked = row.is_credit_backed === true || String(row.is_credit_backed).toLowerCase() === 'true' ||
           String(row.method || '').toLowerCase().includes('advance credit') ||
           String(row.description || '').toLowerCase().includes('paid via advance credit');
