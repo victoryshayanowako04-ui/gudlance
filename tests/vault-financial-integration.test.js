@@ -28,7 +28,7 @@ test('the Vault calculator includes stock purchases and keeps reconciled POS his
 test('the audited Vault modules load after the existing application script', () => {
   const html = read('index.html');
   const appIndex = html.indexOf('app.js?v=46');
-  const coreIndex = html.indexOf('js/vault-financial-core.js?v=1');
+  const coreIndex = html.indexOf('js/vault-financial-core.js?v=2');
   const engineIndex = html.indexOf('js/vault-financial-engine.js?v=7');
   assert.ok(appIndex >= 0 && coreIndex > appIndex && engineIndex > coreIndex);
 });
@@ -40,6 +40,9 @@ test('daily cash sessions are isolated from the existing financial tables', () =
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.vault_session_audit/);
   assert.match(migration, /status = 'CLOSED'/);
   assert.match(migration, /variance = round\(p_actual_closing - p_expected_closing, 2\)/);
+  assert.match(migration, /is_verified =/);
+  assert.match(migration, /exception_count =/);
+  assert.match(migration, /movement_count =/);
   assert.match(migration, /REVOKE ALL ON TABLE public\.vault_daily_sessions FROM PUBLIC, anon, authenticated/);
   assert.match(migration, /REVOKE ALL ON TABLE public\.vault_session_audit FROM PUBLIC, anon, authenticated/);
   assert.match(migration, /SECURITY INVOKER/);
@@ -57,6 +60,10 @@ test('daily Vault endpoint verifies a Chief Admin and never exposes service cred
   assert.match(endpoint, /SUPABASE_SECRET_KEYS/);
   assert.match(endpoint, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(endpoint, /record_vault_session/);
+  assert.match(endpoint, /isAllowedOrigin/);
+  assert.match(endpoint, /gudlance\\.pages\\.dev/);
+  assert.match(endpoint, /rawBody.length > 120000/);
+  assert.match(endpoint, /Unsupported Vault currency/);
   assert.match(read('supabase/config.toml'), /verify_jwt = false/);
   assert.doesNotMatch(read('js/vault-financial-engine.js'), /SUPABASE_SERVICE_ROLE_KEY/);
   assert.doesNotMatch(read('js/vault-financial-engine.js'), /localStorage\.setItem/);
