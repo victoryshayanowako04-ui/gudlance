@@ -62,6 +62,10 @@ A read-only aggregate check found:
 | Rows with legacy data.password values | 19 |
 | Rows with an email address | 1 |
 | Rows in app_users | 0 |
+| Supabase Auth users | 0 |
+| Level 1 / Level 2 / Level 3 roles | 13 / 2 / 4 |
+
+All 7 non-empty password_hash values exactly match the corresponding legacy data.pass and data.password values. None matched the checked bcrypt, Argon2 or SHA-256 hex formats. The password_hash column name is misleading: these are legacy plaintext credentials, not secure password hashes.
 
 The users table is the active legacy account source. The empty app_users table is not currently the login source. The account migration must preserve the existing username-based login experience; it must not assume that every staff member has an email address.
 
@@ -175,10 +179,15 @@ The exact table grouping must be confirmed by the completed access matrix. No gr
 ## 5. Current release status
 
 - Vault PR #1 remains open and draft; it has not been merged.
+- Phase 0 containment is committed directly to main in **25f397f1edb10178f57cb74d84eb48754d83972a**.
+- That commit removes the hard-coded developer login bypass and developer factory-reset override, removes special God Mode privileges, disables the unsafe client-side Factory Reset, restricts maintenance controls to the Level 3 role, bumps the app and service-worker cache versions, and adds five security regression tests.
+- The normal username/password login path remains present. It still performs legacy credential comparison in browser code and stores role state client-side, so this is containment, not the completed authentication migration.
+- The Vault PR feature branch has not yet been synced with the main-branch containment commit. Its preview still uses the pre-containment app.js and must not be used for interactive testing. Merging that branch as-is would reintroduce the developer bypass and client-side factory-reset code.
 - The Vault preview uses the live Supabase project. Any real opening float or closing count entered there creates a real financial record.
 - The Vault backend is version 6.
-- The previous Vault calculation and integration test suites passed in the isolated harness, but the hosted GitHub runner issue still needs a successful CI run.
-- No existing financial source records were modified during this audit.
-- No existing application table grants or RLS policies were changed during this audit.
+- The isolated Vault suite contains 48 tests. The main-branch security regression tests passed locally: **5 passed, 0 failed**.
+- GitHub Actions run 125 for the Vault PR was retried but again failed before any step started. The job returned no steps, so this is a runner-allocation failure, not a test assertion result. A successful hosted CI run is still outstanding.
+- No existing financial source records were modified during this audit or the Phase 0 commit.
+- No existing application table grants or RLS policies were changed.
 
 **Next implementation target:** build and test the username-based Supabase Auth bridge while keeping the existing application login available. Do not enable RLS or revoke current application grants until the bridge and the first table group are verified.
