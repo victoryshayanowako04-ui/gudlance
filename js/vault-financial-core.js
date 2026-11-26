@@ -109,6 +109,15 @@
     const ledgerRows = Array.isArray(source.ledger) ? source.ledger : [];
     const ledgerReceipts = new Set();
     const ledgerReceiptStudentKeys = new Set();
+    const walkInPosReceipts = new Set(
+      (Array.isArray(source.transactions) ? source.transactions : [])
+        .filter(sale => {
+          const studentId = String(sale?.student_id || '').trim().toUpperCase();
+          return sale && isValidStatus(sale.status) && (!studentId || studentId === 'WALK-IN');
+        })
+        .map(sale => String(sale.receipt_no || sale.id || '').toUpperCase())
+        .filter(Boolean)
+    );
     const seen = new Set();
     const asOfDate = endDate || isoDate(source.today) || harareToday();
 
@@ -253,7 +262,7 @@
       const receiptKey = String(reference || '').toUpperCase();
       const studentKey = receiptKey + '|' + studentId.toUpperCase();
       if ((receiptKey && studentId && ledgerReceiptStudentKeys.has(studentKey)) ||
-          (receiptKey && !studentId && ledgerReceipts.has(receiptKey))) return;
+          (receiptKey && !studentId && (ledgerReceipts.has(receiptKey) || walkInPosReceipts.has(receiptKey)))) return;
 
       const amountCents = Math.abs(cents(payment.amount));
       if (!withinPeriod(date, startDate, endDate)) {
