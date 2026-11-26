@@ -148,3 +148,52 @@ test('24 November 2026 reconciles cash and EcoCash independently', () => {
   assert.equal(result.totals.overpaymentsCents, 13500);
   assert.equal(result.exceptions.length, 0);
 });
+
+
+test('paid payment rows missing from the ledger are included once and flagged for review', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [],
+    payments: [{
+      id: 901, student_id: 'STU-9', date: '2026-11-24', receipt_no: 'MISSING-LEDGER-1',
+      amount: 25, method: 'Cash', status: 'PAID', category: 'Tuition'
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 2500);
+  assert.equal(result.totals.cashInCents, 2500);
+  assert.equal(result.movements.length, 1);
+  assert.equal(result.movements[0].source, 'payments');
+  assert.ok(result.exceptions.some(item => item.code === 'PAYMENT_MISSING_LEDGER'));
+});
+
+test('payment fallback does not duplicate a receipt already represented for the same student', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [{
+      id: 'L1', student_id: 'STU-9', date: '2026-11-24', type: 'payment',
+      amount: 25, method: 'Cash', status: 'ACTIVE', receipt_no: 'MATCHED-1'
+    }],
+    payments: [{
+      id: 901, student_id: 'STU-9', date: '2026-11-24', receipt_no: 'MATCHED-1',
+      amount: 25, method: 'Cash', status: 'PAID', category: 'Tuition'
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 2500);
+  assert.equal(result.movements.length, 1);
+  assert.equal(result.exceptions.length, 0);
+});
+
+test('a fallback overpayment is included in collections and outstanding student credit', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [],
+    payments: [{
+      id: 902, student_id: 'STU-10', date: '2026-11-24', receipt_no: 'MISSING-OVERPAY-1',
+      amount: 12, method: 'EcoCash', status: 'PAID', category: 'Overpayment'
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 1200);
+  assert.equal(result.totals.onlineInCents, 1200);
+  assert.equal(result.totals.overpaymentsCents, 1200);
+  assert.equal(result.totals.creditLiabilityCents, 1200);
+});
