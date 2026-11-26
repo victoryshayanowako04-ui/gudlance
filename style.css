@@ -722,3 +722,67 @@ body.role-teacher .read-only-input { pointer-events: none; background-color: #e8
         font-size: 16px !important;
     }
 }
+
+ 
+/* Visit Records: keep long histories compact and easy to navigate. */
+.visit-log-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+    color: #64748b;
+    font-size: 13px;
+}
+.visit-log-pagination-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.visit-log-pagination-controls button {
+    min-height: 36px;
+    padding: 7px 12px;
+}
+.visit-log-pagination-controls button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.visit-log-details-cell {
+    max-width: 340px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Keep the cloud status indicator clear of the sidebar's Logout action. */
+#dbConnectionPill {
+    left: 266px !important;
+    right: 16px !important;
+    bottom: 16px !important;
+    width: max-content;
+    max-width: calc(100vw - 282px);
+    z-index: 1000 !important;
+}
+@media (max-width: 768px) {
+    #dbConnectionPill {
+        left: auto !important;
+        right: 12px !important;
+        bottom: 12px !important;
+        max-width: calc(100vw - 24px);
+        z-index: 9998 !important;
+    }
+    .visit-log-pagination {
+        align-items: flex-start;
+    }
+    .visit-log-pagination-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+    .visit-log-details-cell {
+        max-width: 220px;
+    }
+}
