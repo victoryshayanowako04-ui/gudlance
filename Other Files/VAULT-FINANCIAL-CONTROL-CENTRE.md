@@ -1,0 +1,80 @@
+# Gudlance Vault Financial Control Centre
+
+## Purpose
+
+This change adds an audited financial calculation layer and a daily physical-cash session without rewriting existing student, POS, payment, expense or payroll records.
+
+The feature is intentionally additive. The existing Finance & Ledger screen remains in place; the new Vault Control Centre is inserted above its existing summary.
+
+## Financial sources and de-duplication
+
+| Source | Use |
+| --- | --- |
+| student_ledger | Authoritative student receipts, event receipts, shop allocations, overpayments and credit-funded payments |
+| transactions | Walk-in POS receipts only; student POS sales are not counted again because their payment is represented in the student ledger |
+| expenses | Active paid expenses, including inventory/stock purchases stored in JSON data |
+| payroll_history | Only payroll with a confirmed paid status; allocated to the saved payment method |
+| payments | Not summed independently because its receipt rows can represent the same payment already present in the student ledger |
+| event_history | Not summed independently because event collections are represented in student ledger entries |
+
+Reconciled POS rows remain part of historical reports. Reconciliation is a status, not a reason to erase a financial movement.
+
+## Calculation rules
+
+- All USD arithmetic is performed in integer cents.
+- The selected start and end dates are inclusive.
+- Empty date filters mean all available history; they do not silently become today.
+- A student receipt is counted once from the student ledger. Walk-in POS is counted only when no matching ledger receipt exists.
+- A mixed receipt is allocated proportionally across its breakdown lines, with the final line receiving any rounding remainder.
+- Overpayment allocations are counted as actual collections and as student credit liability.
+- Credit-funded payments reduce student credit liability but do not create a new cash collection.
+- Stock purchases reduce the payment channel recorded on the expense, including purchases stored only in JSON.
+- Payroll reduces the account indicated by payment_method, not automatically physical cash.
+- Missing/unknown methods are reported as unclassified and are never assumed to be cash.
+- ZiG is kept separate from USD and is not added to USD cash.
+
+## Daily cash session
+
+The opening float is entered manually for each business date. It is not carried forward automatically.
+
+A session is unique by business date, currency and drawer. The opening amount is recorded once. The standard workflow cannot silently overwrite an opening float or reopen a closed day.
+
+Expected closing cash:
+
+    opening float + cash inflows - cash outflows
+
+Closing stores the expected amount, actual physical count, variance, calculation summary and an append-only audit event. A non-zero variance is recorded, not automatically corrected.
+
+## Security boundary
+
+The daily session tables have RLS enabled, no anon or authenticated table grants, and service-role-only access. The browser never receives the Supabase service-role key.
+
+The Netlify function rechecks the user's Chief Admin role and Vault password server-side before reading or writing a daily session. It requires the same server environment variables already used by the existing Chief Admin verification function:
+
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+
+The endpoint uses the existing custom users table and current Vault password convention. It does not create Supabase Auth users or change the login system.
+
+## Deployment sequence
+
+1. Run CI and review the pull request.
+2. Confirm Netlify Functions are deployed for this repository and both required environment variables are configured.
+3. Apply supabase/migrations/20261126100000_vault_daily_cash_sessions.sql to the intended Supabase project.
+4. Deploy the updated static app and netlify/functions/vault-session.js.
+5. Test with a non-production date/session first, then verify the actual cash drawer against the recorded opening float and movement list.
+
+The migration has not been applied to the live Supabase project by this code change. Existing financial data is not backfilled or rewritten.
+
+## Known limitations and review rules
+
+- A movement with no reliable date or payment method is flagged; it is not guessed into a cash or bank total.
+- The current daily close workflow records physical USD cash. ZiG expenses are shown separately; a complete ZiG opening/closing drawer workflow needs its own confirmed source and operational rules.
+- Online channel totals are period movements, not bank-statement closing balances. To reconcile a bank or mobile-money account to its real-world balance, a separate opening and actual closing balance must be recorded for that account.
+- Historical student-credit liability is reconstructed from overpayment allocations and credit-backed ledger payments. Unmapped credit rows or negative reconstructed balances must be reviewed before calling the liability fully reconciled.
+- The UI marks a calculation with exceptions as requiring review, even when it can still display the classified subtotals.
+- No legacy data is silently edited to repair historical gaps.
+
+## Regression coverage
+
+The Node test suite covers money rounding, mixed overpayment allocations, credit-funded payments, stock expenses, reconciled POS rows, duplicate receipt protection, inclusive dates, unclassified payment methods and payroll account allocation. Integration tests cover the script load order, migration access restrictions and server-side Chief Admin checks.
