@@ -15,7 +15,9 @@ const APP_SHELL = [
   './js/finance.js',
   './js/academics.js',
   './js/settings.js',
-  './js/icons.js'
+  './js/icons.js',
+  './js/vault-financial-core.js',
+  './js/vault-financial-engine.js'
 ];
 
 self.addEventListener('install', (event) => {
