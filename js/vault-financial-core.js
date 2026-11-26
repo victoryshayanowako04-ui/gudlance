@@ -179,7 +179,7 @@
         }
         const creditBacked = row.is_credit_backed === true || String(row.is_credit_backed).toLowerCase() === 'true' ||
           String(row.method || '').toLowerCase().includes('advance credit') ||
-          String(row.description || '').toLowerCase().includes('paid via advance credit');
+          String(row.description || '').toLowerCase().includes('paid via advance credit') || classifyMethod(row.method || row.payment_method) === 'credit';
         const creditUsed = Math.min(amountCents, Math.max(0, cents(row.credit_used)));
         if (creditBacked || creditUsed > 0) {
           result.totals.creditLiabilityCents -= creditUsed || (creditBacked ? amountCents : 0);
@@ -203,14 +203,8 @@
         String(row.description || '').toLowerCase().includes('paid via advance credit');
       const creditUsed = Math.min(amountCents, Math.max(0, cents(row.credit_used)));
       const actualReceived = Math.max(0, amountCents - (creditUsed || (creditBacked ? amountCents : 0)));
-      if (creditBacked || creditUsed > 0) {
-        addException('CREDIT_FUNDED_PAYMENT', date, reference, 'Credit applied to a student charge is not a new cash collection.', creditUsed || amountCents);
-      }
       if (actualReceived <= 0) return;
-      if (account === 'credit') {
-        addException('CREDIT_METHOD_ON_PAYMENT', date, reference, 'Payment uses student credit and is not a new collection.', actualReceived);
-        return;
-      }
+      if (account === 'credit') return;
       if (account === 'unclassified') {
         addException('UNKNOWN_PAYMENT_METHOD', date, reference, 'Student payment method is missing or cannot be safely classified.', actualReceived);
       }
@@ -300,7 +294,6 @@
       const account = classifyMethod(methodLabel);
       if (currency === 'ZIG' || currency === 'ZWG') {
         result.totals.zigExpenseCents += amountCents;
-        addException('ZIG_CURRENCY_SEPARATE', date, reference, 'ZiG expense is kept separate from USD cash calculations.', amountCents);
         return;
       }
       if (account === 'credit') {
