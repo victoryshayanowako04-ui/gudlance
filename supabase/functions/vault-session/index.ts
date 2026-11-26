@@ -1,3 +1,5 @@
+import './vault-financial-core.js';
+
 const baseCorsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -119,6 +121,58 @@ async function verifyChiefAdmin(userId, password) {
   return user;
 }
 
+
+const VAULT_SOURCE_COLUMNS = {
+  student_ledger: 'id,student_id,date,type,description,amount,method,status,receipt_no,breakdown,is_credit_backed,processed_by,credit_used,payment_notes,zig,reconciled',
+  transactions: 'id,student_id,date,type,amount,description,receipt_no,status,category,total,reconciled,paymentmethod,item,usdpaid,zigpaid,discount,is_credit_backed,processed_by,credit_applied_amount,payment_details,notes',
+  expenses: 'id,created_at,description,amount,date,data,payment_method,category,signed_by,status',
+  payroll_history: 'id,teacher_id,amount,payment_date,payroll_period,payment_method,status,reference_number,expenses,notes',
+  payments: 'id,receipt_no,student_id,amount,date,method,status,category,notes,zig,reconciled'
+};
+
+async function fetchAllVaultRows(table) {
+  const columns = VAULT_SOURCE_COLUMNS[table];
+  if (!columns) throw new Error('Unsupported Vault source table.');
+  const pageSize = 1000;
+  const rows = [];
+  let offset = 0;
+  while (true) {
+    const params = new URLSearchParams({
+      select: columns,
+      order: 'id.asc',
+      limit: String(pageSize),
+      offset: String(offset)
+    });
+    const batch = await supabaseRequest(table + '?' + params.toString());
+    if (!Array.isArray(batch)) throw new Error('Unexpected response from Vault source table: ' + table);
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+    offset += pageSize;
+    if (offset > 500000) throw new Error('Vault source table exceeded the safe pagination limit: ' + table);
+  }
+  return rows;
+}
+
+async function calculateVaultReport(startDate, endDate) {
+  const core = globalThis.GudlanceVaultCore;
+  if (!core || typeof core.calculateVaultFinancials !== 'function') {
+    const error = new Error('Vault calculation engine is unavailable.');
+    error.status = 503;
+    throw error;
+  }
+  const [ledger, transactions, expenses, payroll, payments] = await Promise.all([
+    fetchAllVaultRows('student_ledger'),
+    fetchAllVaultRows('transactions'),
+    fetchAllVaultRows('expenses'),
+    fetchAllVaultRows('payroll_history'),
+    fetchAllVaultRows('payments')
+  ]);
+  return core.calculateVaultFinancials({
+    startDate, endDate,
+    ledger, transactions, expenses, payroll, payments
+  });
+}
+
 Deno.serve(async request => {
   const origin = request.headers.get('Origin') || '';
   const respond = (status, payload) => json(status, payload, origin);
@@ -145,16 +199,31 @@ Deno.serve(async request => {
     const businessDate = String(body.businessDate || '');
     const currency = String(body.currency || 'USD');
     const drawerId = String(body.drawerId || 'main').trim() || 'main';
+    const startDate = String(body.startDate || '');
+    const endDate = String(body.endDate || '');
 
     if (!userId || !password || userId.length > 128 || password.length > 256) {
       return respond(400, { error: 'Vault authentication is required.' });
     }
-    if (!isDate(businessDate)) return respond(400, { error: 'Select a valid business date.' });
-    if (!['USD', 'ZiG'].includes(currency)) return respond(400, { error: 'Unsupported Vault currency.' });
-    if (!['read', 'open', 'close'].includes(action)) return respond(400, { error: 'Unsupported Vault action.' });
+    if (!['read', 'open', 'close', 'calculate'].includes(action)) return respond(400, { error: 'Unsupported Vault action.' });
+    if (action !== 'calculate' && !isDate(businessDate)) return respond(400, { error: 'Select a valid business date.' });
+    if (action === 'calculate') {
+      if ((startDate && !isDate(startDate)) || (endDate && !isDate(endDate))) {
+        return respond(400, { error: 'Select valid report dates.' });
+      }
+      if (startDate && endDate && startDate > endDate) {
+        return respond(400, { error: 'The report start date must be on or before its end date.' });
+      }
+    }
+    if (action !== 'calculate' && !['USD', 'ZiG'].includes(currency)) return respond(400, { error: 'Unsupported Vault currency.' });
     if (drawerId.length > 80) return respond(400, { error: 'Invalid cash drawer.' });
 
     const user = await verifyChiefAdmin(userId, password);
+
+    if (action === 'calculate') {
+      const result = await calculateVaultReport(startDate, endDate);
+      return respond(200, { result });
+    }
 
     if (action === 'read') {
       const rows = await supabaseRequest(
