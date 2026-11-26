@@ -39,6 +39,44 @@ Additional policy findings:
 
 A source scan of the current main-branch app.js found **259 direct Supabase .from() call sites across 33 distinct relation/resource names**. This count includes a view and a Storage resource, not just base tables. The parent portal also has a direct attendance query.
 
+| Resource | app.js call sites |
+|---|---:|
+| student_ledger | 45 |
+| payments | 23 |
+| students | 21 |
+| users | 21 |
+| transactions | 17 |
+| inventory | 16 |
+| school_data | 15 |
+| expenses | 11 |
+| pre_enrollments | 7 |
+| announcements | 6 |
+| reconciliation_audits | 6 |
+| attendance | 5 |
+| classes | 5 |
+| event_history | 5 |
+| pre_enrollment_receipts | 5 |
+| staff_registry | 5 |
+| allocations | 4 |
+| audit_logs | 4 |
+| fee_structures | 4 |
+| payroll_history | 4 |
+| pending_applications | 4 |
+| teachers | 4 |
+| core_sync_state | 3 |
+| global_settings | 3 |
+| schools | 3 |
+| voided_transactions | 3 |
+| payment_reference_claims | 2 |
+| school_assets | 2 |
+| wa_sent_logs | 2 |
+| academic_reports | 1 |
+| application-documents (Storage bucket) | 1 |
+| event_payments_view (view) | 1 |
+| settings | 1 |
+
+This is a direct-call inventory, not the final authorization matrix. The 48-table database inventory remains authoritative; tables not present above may still be accessed through RPCs, Edge Functions, triggers, views or other client files.
+
 The application currently:
 
 - Reads users.password_hash and the data JSON from the browser during login.
