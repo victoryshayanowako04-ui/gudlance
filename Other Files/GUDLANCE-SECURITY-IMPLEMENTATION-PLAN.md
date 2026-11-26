@@ -23,6 +23,12 @@ Read-only catalog checks found:
 
 The three forced-RLS tables are the Vault session, Vault audit and Vault authentication-throttle tables. Their direct anon and authenticated grants are absent.
 
+### Tenant boundary
+
+A schema scan found no school_id or tenant_id column in the public application tables. The current counts are 4 rows in schools, 2 rows in school_data, 0 rows in school_settings and 397 rows in students. The parent_student_links table exists but currently has 0 rows.
+
+This does not prove whether the four schools rows are historical/licensing records or active tenants. The current application data model has no clear common tenant key for student, attendance and financial records. The RLS design must confirm whether this deployment is intended for one school or multiple schools sharing the same Supabase project before policies are written. If it is multi-school, a tenant key and a verified backfill plan are required; do not assume the current records can be safely separated.
+
 The existing application tables remain broadly exposed. Sensitive tables include users, payments, student_ledger, expenses, transactions and payroll_history.
 
 Additional policy findings:
