@@ -61,7 +61,7 @@ test('daily Vault endpoint verifies a Chief Admin and never exposes service cred
   assert.match(endpoint, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(endpoint, /record_vault_session/);
   assert.match(endpoint, /isAllowedOrigin/);
-  assert.match(endpoint, /gudlance\\.pages\\.dev/);
+  assert.match(endpoint, /gudlance\.pages\.dev/);
   assert.match(endpoint, /rawBody.length > 120000/);
   assert.match(endpoint, /Unsupported Vault currency/);
   assert.match(read('supabase/config.toml'), /verify_jwt = false/);
