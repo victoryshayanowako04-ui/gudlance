@@ -2065,6 +2065,7 @@ window.unlockAdminFinance = async function() {
         if (!storedPassword || password !== storedPassword) {
             return alert("❌ Incorrect Vault Password.");
         }
+        if (typeof window.setVaultSessionPassword === 'function') window.setVaultSessionPassword(password);
     } catch (error) {
         console.error("Vault unlock verification failed:", error);
         return alert("❌ Could not verify the Vault Password. Please check your connection.");
