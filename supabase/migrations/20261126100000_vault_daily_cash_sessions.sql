@@ -53,7 +53,7 @@ CREATE OR REPLACE FUNCTION public.record_vault_session(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $function$
 DECLARE
