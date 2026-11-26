@@ -1,4 +1,4 @@
-const CACHE_NAME = 'haven-school-v4';
+const CACHE_NAME = 'haven-school-v5';
 const APP_SHELL = [
   './',
   './index.html',
