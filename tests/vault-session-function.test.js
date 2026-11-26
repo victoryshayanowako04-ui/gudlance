@@ -234,3 +234,22 @@ test('Vault prefers the scoped Supabase secret over the legacy service role key'
   assert.ok(calls.every(call => call.headers.apikey === 'sb_secret_scoped_key'));
   assert.equal(calls[0].headers.Authorization, undefined);
 });
+
+
+test('date-range calculations scope source reads while retaining prior credit history', async () => {
+  const { handler, calls } = createHandler({
+    users: [{ id: 'chief-1', role: 'Level 3 - Chief Admin', password_hash: 'correct-pass', data: {} }]
+  });
+  const response = await handler(post(JSON.stringify({
+    action: 'calculate', userId: 'chief-1', password: 'correct-pass',
+    startDate: '2026-11-24', endDate: '2026-11-24'
+  })));
+  assert.equal(response.status, 200);
+  const ledgerUrl = new URL(calls.find(call => call.url.includes('/student_ledger?')).url);
+  assert.equal(ledgerUrl.searchParams.get('type'), 'in.(payment,overpayment,credit)');
+  assert.equal(ledgerUrl.searchParams.get('or'), '(date.lte.2026-11-24,date.is.null)');
+  const paymentsUrl = new URL(calls.find(call => call.url.includes('/payments?')).url);
+  assert.equal(paymentsUrl.searchParams.get('or'), '(and(date.gte.2026-11-24,date.lte.2026-11-24),date.is.null)');
+  const payrollUrl = new URL(calls.find(call => call.url.includes('/payroll_history?')).url);
+  assert.equal(payrollUrl.searchParams.get('or'), '(and(payment_date.gte.2026-11-24,payment_date.lte.2026-11-24),payment_date.is.null)');
+});
