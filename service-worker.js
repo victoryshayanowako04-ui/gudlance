@@ -1,10 +1,11 @@
-const CACHE_NAME = 'haven-school-v4';
+const CACHE_NAME = 'haven-school-v5';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './stationery.js',
+  './visit-log.js',
   './parent-portal.js',
   './manifest.json',
   './favicon.png',
