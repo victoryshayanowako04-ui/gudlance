@@ -197,3 +197,24 @@ test('a fallback overpayment is included in collections and outstanding student 
   assert.equal(result.totals.overpaymentsCents, 1200);
   assert.equal(result.totals.creditLiabilityCents, 1200);
 });
+
+
+test('walk-in payment fallback is not duplicated when the same receipt exists in POS', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [],
+    payments: [{
+      id: 903, student_id: null, date: '2026-11-24', receipt_no: 'WALKIN-1',
+      amount: 16, method: 'Cash USD', status: 'PAID', category: 'Shop'
+    }],
+    transactions: [{
+      id: 'POS-903', student_id: 'WALK-IN', date: '2026-11-24', status: 'ACTIVE',
+      receipt_no: 'WALKIN-1', paymentmethod: 'Cash USD', total: 16, usdpaid: 16
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 1600);
+  assert.equal(result.totals.cashInCents, 1600);
+  assert.equal(result.movements.length, 1);
+  assert.equal(result.movements[0].source, 'transactions');
+  assert.equal(result.exceptions.length, 0);
+});
