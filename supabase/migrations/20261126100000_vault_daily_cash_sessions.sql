@@ -112,7 +112,7 @@ BEGIN
         RETURN to_jsonb(v_session);
     ELSIF v_action = 'CLOSE' THEN
         IF p_expected_closing IS NULL OR p_actual_closing IS NULL
-           OR p_expected_closing < 0 OR p_actual_closing < 0 THEN
+           OR p_actual_closing < 0 THEN
             RAISE EXCEPTION 'Expected and actual closing balances must be zero or greater';
         END IF;
 
