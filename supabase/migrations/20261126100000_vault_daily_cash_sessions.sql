@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS public.vault_daily_sessions (
     expected_closing numeric(14,2),
     actual_closing numeric(14,2),
     variance numeric(14,2),
+    is_verified boolean NOT NULL DEFAULT false,
+    exception_count integer NOT NULL DEFAULT 0 CHECK (exception_count >= 0),
+    movement_count integer NOT NULL DEFAULT 0 CHECK (movement_count >= 0),
     status text NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
     opened_by text NOT NULL,
     opened_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -140,6 +143,12 @@ BEGIN
         SET expected_closing = round(p_expected_closing, 2),
             actual_closing = round(p_actual_closing, 2),
             variance = round(p_actual_closing - p_expected_closing, 2),
+            exception_count = GREATEST(COALESCE(NULLIF(p_snapshot->>'exceptionCount', '')::integer, 0), 0),
+            movement_count = GREATEST(COALESCE(NULLIF(p_snapshot->>'movementCount', '')::integer, 0), 0),
+            is_verified = (
+                GREATEST(COALESCE(NULLIF(p_snapshot->>'exceptionCount', '')::integer, 0), 0) = 0
+                AND round(p_actual_closing - p_expected_closing, 2) = 0
+            ),
             closing_snapshot = COALESCE(p_snapshot, '{}'::jsonb),
             status = 'CLOSED',
             closed_by = p_actor_id,
