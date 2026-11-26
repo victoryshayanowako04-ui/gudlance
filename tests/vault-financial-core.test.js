@@ -218,3 +218,51 @@ test('walk-in payment fallback is not duplicated when the same receipt exists in
   assert.equal(result.movements[0].source, 'transactions');
   assert.equal(result.exceptions.length, 0);
 });
+
+
+test('advance-credit settlement reduces student liability without inflating period overpayments', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [
+      { id: 'O1', student_id: 'STU-1', date: '2026-11-24', type: 'overpayment', amount: 100, method: 'Cash', status: 'ACTIVE', receipt_no: 'R1' },
+      { id: 'C1', student_id: 'STU-1', date: '2026-11-24', type: 'payment', amount: 30, method: 'Advance Credit', is_credit_backed: true, status: 'ACTIVE', receipt_no: 'R2', breakdown: [{ amt: 30, desc: 'Covered by Advance Credit' }] }
+    ]
+  });
+  assert.equal(result.totals.collectionsCents, 10000);
+  assert.equal(result.totals.overpaymentsCents, 10000);
+  assert.equal(result.totals.creditLiabilityCents, 7000);
+  assert.equal(result.movements.length, 1);
+});
+
+test('mixed cash and advance-credit payments allocate only actual cash to cash breakdown lines', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [
+      { id: 'O1', student_id: 'STU-1', date: '2026-11-23', type: 'overpayment', amount: 20, method: 'Cash', status: 'ACTIVE', receipt_no: 'R1' },
+      { id: 'P1', student_id: 'STU-1', date: '2026-11-24', type: 'payment', amount: 50, method: 'Cash', is_credit_backed: true, credit_used: 20, status: 'ACTIVE', receipt_no: 'R2',
+        breakdown: [{ amt: 30, desc: 'Tuition fee' }, { amt: 20, desc: 'Covered by Advance Credit' }] }
+    ]
+  });
+  assert.equal(result.totals.collectionsCents, 3000);
+  assert.equal(result.totals.cashInCents, 3000);
+  assert.equal(result.totals.creditLiabilityCents, 0);
+  assert.equal(result.movements.length, 1);
+  assert.equal(result.movements[0].description, 'Tuition fee');
+  assert.equal(result.movements[0].amountCents, 3000);
+});
+
+test('credit allocation reversals are not reported as new overpayments', () => {
+  const result = calculateVaultFinancials({
+    startDate: '2026-11-24', endDate: '2026-11-24',
+    ledger: [{
+      id: 'P1', student_id: 'STU-1', date: '2026-11-24', type: 'payment',
+      amount: 20, method: 'Cash', status: 'ACTIVE', receipt_no: 'R1',
+      breakdown: [{ amt: 5, desc: 'Event/Trip: swimming' }, { amt: 15, desc: 'Credit Allocation (Reversal)' }]
+    }]
+  });
+  assert.equal(result.totals.collectionsCents, 2000);
+  assert.equal(result.totals.overpaymentsCents, 0);
+  assert.equal(result.totals.creditLiabilityCents, 0);
+  assert.equal(result.movements.length, 2);
+  assert.equal(result.movements.find(item => item.description.includes('Credit Allocation')).category, 'credit_adjustment');
+});
