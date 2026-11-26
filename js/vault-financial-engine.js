@@ -309,16 +309,19 @@
     const closed = String(session.status).toUpperCase() === 'CLOSED';
     const expected = closed ? Number(session.expected_closing) :
       Number(session.opening_float) + result.totals.netCashCents / 100;
+    const savedExceptionCount = closed
+      ? Number(session.exception_count ?? session.closing_snapshot?.exceptionCount ?? 0)
+      : result.exceptions.length;
     if ($('vcpSessionSummary')) {
       $('vcpSessionSummary').style.display = 'block';
       $('vcpSessionSummary').innerHTML = '<div class="vcp-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0">' +
         '<div class="vcp-metric"><small>Opening float</small><strong>' + formatMoney(core.cents(session.opening_float)) + '</strong></div>' +
-        '<div class="vcp-metric"><small>' + (result.exceptions.length ? 'Expected closing · provisional' : 'Expected closing') + '</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
+        '<div class="vcp-metric"><small>' + (savedExceptionCount ? 'Expected closing · provisional' : 'Expected closing') + '</small><strong>' + formatMoney(core.cents(expected)) + '</strong></div>' +
         '<div class="vcp-metric"><small>' + (closed ? 'Actual closing' : 'Net movement') + '</small><strong>' +
         (closed ? formatMoney(core.cents(session.actual_closing)) : formatMoney(result.totals.netCashCents)) + '</strong></div></div>' +
-        (closed ? '<div class="' + (Number(session.variance) === 0 ? 'vcp-positive' : 'vcp-danger') +
+        (closed ? '<div class="' + (Number(session.variance) === 0 && session.is_verified === true ? 'vcp-positive' : 'vcp-danger') +
           '" style="font-weight:850;margin-top:10px">Closing variance: ' + formatMoney(core.cents(session.variance)) +
-          (result.exceptions.length ? ' · Source exceptions remain' : (Number(session.variance) === 0 ? ' · Balanced' : ' · Difference requires investigation')) + '</div>' :
+          (savedExceptionCount ? ' · ' + savedExceptionCount + ' source exceptions at close' : (session.is_verified === true ? ' · Balanced and verified' : ' · Closed but not fully verified')) + '</div>' :
           '<div class="vcp-muted" style="margin-top:8px">Opening float is locked. Record the actual drawer count when the day is finished.</div>');
     }
     const verified = closed && session.is_verified === true;
@@ -329,7 +332,9 @@
 
   async function saveOpeningFloat() {
     const button = $('vcpOpenButton');
-    const amount = Number($('vcpOpeningFloat')?.value);
+    const rawAmount = String($('vcpOpeningFloat')?.value ?? '').trim();
+    if (!rawAmount) return alert('Enter the opening float. Enter 0 if the drawer starts with no cash.');
+    const amount = Number(rawAmount);
     if (!Number.isFinite(amount) || amount < 0) return alert('Enter a valid opening float.');
     if (button) { button.disabled = true; button.textContent = 'Saving…'; }
     try {
@@ -347,7 +352,9 @@
   async function closeDailySession() {
     const button = $('vcpCloseButton');
     if (!state.session || !state.result) return alert('Record the opening float and refresh the Vault first.');
-    const actual = Number($('vcpActualClosing')?.value);
+    const rawActual = String($('vcpActualClosing')?.value ?? '').trim();
+    if (!rawActual) return alert('Enter the actual physical cash count. Enter 0 if the drawer is empty.');
+    const actual = Number(rawActual);
     if (!Number.isFinite(actual) || actual < 0) return alert('Enter the actual cash count.');
     const expected = Number(state.session.opening_float) + state.result.totals.netCashCents / 100;
     if (button) { button.disabled = true; button.textContent = 'Reconciling…'; }
@@ -369,16 +376,14 @@
           creditLiabilityCents: state.result.totals.creditLiabilityCents,
           exceptionCount: state.result.exceptions.length,
           movementCount: state.result.movements.length,
-          movementRefs: state.result.movements.map(item => [item.source, item.sourceId, item.reference, item.kind, item.account, item.amountCents].join('|')),
-          exceptions: state.result.exceptions.map(item => ({ code: item.code, date: item.date, ref: item.ref, amountCents: item.amountCents })),
           unclassifiedInCents: state.result.totals.unclassifiedInCents,
           unclassifiedOutCents: state.result.totals.unclassifiedOutCents,
           netOnlineCents: state.result.totals.netOnlineCents,
-          movementRefs: state.result.movements.slice(0, 100).map(item => ({
+          movementRefs: state.result.movements.slice(0, 500).map(item => ({
             source: item.source, sourceId: item.sourceId, reference: item.reference,
             account: item.account, kind: item.kind, amountCents: item.amountCents
           })),
-          movementRefsTruncated: state.result.movements.length > 100,
+          movementRefsTruncated: state.result.movements.length > 500,
           exceptionRefs: state.result.exceptions.slice(0, 100).map(item => ({
             code: item.code, date: item.date, reference: item.ref, amountCents: item.amountCents
           })),
@@ -387,14 +392,13 @@
       });
       if (!vaultIsOpen() || !state.password) return;
       renderSession(state.result);
-      if (state.result.exceptions.length) {
-        alert('The day was closed, but ' + state.result.exceptions.length +
+      if (state.session.is_verified === true) {
+        alert('Vault closed, balanced and fully reconciled.');
+      } else if (Number(state.session.exception_count || state.result.exceptions.length) > 0) {
+        alert('The day was closed, but ' + Number(state.session.exception_count || state.result.exceptions.length) +
           ' financial exceptions remain unresolved. It is not marked fully verified.');
-      } else if (Number(state.session.variance) === 0) {
-        alert('Vault closed and balanced.');
       } else {
-        alert('Vault closed with a variance of ' + formatMoney(core.cents(state.session.variance)) +
-          '. Investigate the difference.');
+        alert('Vault closed but is not fully reconciled. Investigate the closing variance or verification status.');
       }
     } catch (error) {
       alert('Vault closing was not saved: ' + error.message);
