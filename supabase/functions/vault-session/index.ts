@@ -19,6 +19,8 @@ const isAllowedOrigin = value => {
   if (!value) return true;
   try {
     const origin = new URL(value);
+    // Exact loopback origin for local development only. Do not allow arbitrary localhost ports or Origin: null.
+    if (origin.origin === 'http://127.0.0.1:5500') return true;
     return origin.protocol === 'https:' && (
       origin.hostname === 'gudlance.pages.dev' ||
       origin.hostname.endsWith('.gudlance.pages.dev') ||
