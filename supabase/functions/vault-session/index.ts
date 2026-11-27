@@ -22,6 +22,7 @@ const isAllowedOrigin = value => {
     return origin.protocol === 'https:' && (
       origin.hostname === 'gudlance.pages.dev' ||
       origin.hostname.endsWith('.gudlance.pages.dev') ||
+      origin.origin === 'https://gudlance.netlify.app' ||
       configuredVaultOrigins.includes(origin.origin)
     );
   } catch (_) { return false; }
